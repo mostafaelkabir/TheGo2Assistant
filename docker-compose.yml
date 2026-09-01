@@ -1,0 +1,19 @@
+# Dev database only. Not a deployment artifact -- the app runs on the host.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: go2
+      POSTGRES_PASSWORD: go2
+      POSTGRES_DB: go2
+    ports:
+      - "5433:5432"   # 5433 to avoid colliding with the Homebrew Postgres on 5432
+    volumes:
+      - go2_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U go2"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  go2_pgdata:

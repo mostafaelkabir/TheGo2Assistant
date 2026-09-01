@@ -1,0 +1,69 @@
+[project]
+name = "go2"
+version = "0.1.0"
+description = "Ask your assistant about your OneDrive and Google Drive files."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic-ai-slim[openai]>=1.0",
+    "pydantic-settings>=2.7",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3.6",
+    "fastembed>=0.5",
+    "pymupdf>=1.25",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "openpyxl>=3.1",
+    "google-api-python-client>=2.160",
+    "google-auth-oauthlib>=1.2",
+    "cryptography>=44.0",
+    "typer>=0.15",
+    "logfire>=3.0",
+]
+
+[project.scripts]
+go2 = "go2.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.16",
+    "pyrefly>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["go2"]
+
+# --- Lint -------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+# The ONLY two suppressions in this project. Both are mandated by Ruff itself:
+# COM812 (missing-trailing-comma) and ISC001 (single-line-implicit-string-concat)
+# conflict with `ruff format`. See https://docs.astral.sh/ruff/formatter/
+# Ruff auto-resolves the mutually exclusive pydocstyle pairs (D203/D211) on its own.
+ignore = ["COM812", "ISC001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "INP001"]      # asserts and magic numbers are the point of a test
+"go2/storage/migrations/**" = ["INP001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# --- Types ------------------------------------------------------------------
+[tool.pyrefly]
+project-includes = ["go2", "tests"]
+python-version = "3.12"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
