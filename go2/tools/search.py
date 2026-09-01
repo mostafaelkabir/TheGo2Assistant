@@ -15,13 +15,34 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
+from go2.config import get_settings
 from go2.rag.retrieval import SearchFilters, SearchOptions, search
 from go2.storage.db import connect, default_tenant_id
 
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from sqlalchemy import Connection
+
 MAX_SNIPPET_CHARS = 1200
+
+
+def unsearchable_count(conn: Connection, tenant_id: str) -> int:
+    """Documents indexed under a different embedding model than the active one.
+
+    An empty result is ambiguous: nothing matched, or nothing *could* match
+    because the configured provider does not own these vectors. Counting the
+    mismatch lets callers tell the two apart.
+    """
+    return int(
+        conn.execute(
+            text("""
+                SELECT count(*) FROM documents
+                 WHERE tenant_id = :t AND embedding_model IS DISTINCT FROM :m
+            """),
+            {"t": tenant_id, "m": get_settings().active_embedding_model},
+        ).scalar_one()
+    )
 
 
 @dataclass(frozen=True, slots=True)

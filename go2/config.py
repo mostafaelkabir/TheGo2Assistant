@@ -18,9 +18,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Environment-backed settings, prefixed ``GO2_``."""
 
+    # Two config files, user-level first so a project-local .env overrides it.
+    #
+    # `go2` is installed as a tool and runs from any directory, but a bare
+    # ".env" is resolved against the *current* directory. That meant the same
+    # command behaved differently depending on where it was typed -- searching
+    # from another folder silently fell back to defaults and found nothing,
+    # because the configured provider was never read.
     model_config = SettingsConfigDict(
         env_prefix="GO2_",
-        env_file=".env",
+        env_file=(Path.home() / ".config" / "go2" / ".env", Path(".env")),
         env_file_encoding="utf-8",
         extra="ignore",
     )

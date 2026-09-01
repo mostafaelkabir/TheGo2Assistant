@@ -25,6 +25,7 @@ from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
 from go2.storage.db import migrate as run_migrations
 from go2.tools.search import list_documents as _list_documents
+from go2.tools.search import unsearchable_count
 
 app = typer.Typer(help="Ask your assistant about your OneDrive and Google Drive files.")
 
@@ -185,7 +186,21 @@ def search(
         )
 
     if not hits:
-        typer.echo("no matches")
+        with connect() as conn:
+            stranded = unsearchable_count(conn, tenant_id)
+        if stranded:
+            # The usual cause is running from a directory where the config was
+            # not found, so a different provider is active than the one that
+            # produced these vectors.
+            typer.echo(
+                f"no matches — but {stranded} documents are indexed under a different "
+                f"embedding model.\n"
+                f"active model: {get_settings().active_embedding_model}\n"
+                f"Either re-ingest, or point at the config that was used to index them "
+                f"(~/.config/go2/.env)."
+            )
+        else:
+            typer.echo("no matches")
         return
 
     for rank, hit in enumerate(hits, start=1):

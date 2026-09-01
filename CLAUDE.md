@@ -71,7 +71,10 @@ uv run pytest -m "not slow"         # skip the model-loading ones
 ```
 
 `go2` is installed as a uv tool (`uv tool install --editable .`), so it runs
-from any directory. **The MCP server does not pick up code changes** — restart
+from any directory. Configuration is read from `~/.config/go2/.env` first, then
+a project-local `.env` which overrides it — a bare `.env` alone would resolve
+against whatever directory the command was typed in, and silently fall back to
+defaults everywhere else. **The MCP server does not pick up code changes** — restart
 Claude Code after editing anything the tools touch.
 
 The dev database is Homebrew `postgresql@17` on **port 5433** (5432 is an older

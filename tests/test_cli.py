@@ -14,6 +14,7 @@ from sqlalchemy import text
 from typer.testing import CliRunner
 
 from go2.cli import _collect, app
+from go2.config import Settings
 from go2.jobs.worker import INGEST_FILE, run_worker
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
@@ -312,3 +313,20 @@ class TestQueue:
                 payload={"path": str(tmp_path / "x")},
             )
         assert "queued" in runner.invoke(app, ["jobs"]).stdout
+
+
+class TestConfigLocation:
+    """Config must not depend on where the command was typed."""
+
+    def test_a_user_level_env_file_is_read(self) -> None:
+        # `go2` runs from any directory, but a bare ".env" resolves against the
+        # current one. Searching from another folder silently used defaults and
+        # returned nothing, because the configured provider was never read.
+        sources = Settings.model_config["env_file"]
+        assert any("config" in str(p) and "go2" in str(p) for p in sources)
+
+    def test_a_project_env_file_still_wins(self) -> None:
+        # Later entries override earlier ones in pydantic-settings, so a
+        # project-local file must come last.
+        sources = [str(p) for p in Settings.model_config["env_file"]]
+        assert sources[-1] == ".env"
