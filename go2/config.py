@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     embedding_model: str = "electroglyph/Qwen3-Embedding-0.6B-onnx-uint8"
     embedding_dim: int = 1024
 
+    # Qwen3-Reranker is a causal LM scoring yes/no logits, not a cross-encoder,
+    # so fastembed cannot serve it. This is the multilingual cross-encoder it
+    # does support, and it handles Arabic queries against English passages.
+    reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
+    # How many fused candidates the cross-encoder scores. Reranking is the
+    # slow half of a search, so this bounds latency.
+    rerank_candidates: int = Field(default=40, ge=1, le=200)
+
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")
 
@@ -46,8 +54,11 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr = SecretStr("")
     langfuse_host: str = "https://cloud.langfuse.com"
 
-    chunk_tokens: int = Field(default=1000, ge=200, le=4000)
-    chunk_overlap_tokens: int = Field(default=120, ge=0, le=1000)
+    # Sized in characters, not tokens: the corpus is mixed Arabic/English and
+    # a token budget from another model's tokenizer misestimates one script
+    # badly. See go2.rag.chunking for the full reasoning.
+    chunk_chars: int = Field(default=3200, ge=500, le=20000)
+    chunk_overlap_chars: int = Field(default=400, ge=0, le=5000)
 
     @property
     def langfuse_enabled(self) -> bool:

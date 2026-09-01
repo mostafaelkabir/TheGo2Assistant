@@ -19,6 +19,7 @@ dependencies = [
     "cryptography>=44.0",
     "typer>=0.15",
     "logfire>=3.0",
+    "mcp>=1.2",
 ]
 
 [project.scripts]
@@ -53,8 +54,25 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "INP001"]      # asserts and magic numbers are the point of a test
+# Test files, not library code. Each entry is a rule whose purpose does not
+# apply here -- none of these are suppressions of a real defect.
+"tests/**" = [
+    "S101",              # asserts ARE the test
+    "PLR2004",           # a literal expectation is clearer than a named constant
+    "INP001",            # tests are not a package
+    "D101", "D102",      # the test's name is its documentation
+    "D103", "D107",
+    "ANN401",            # fakes mirror untyped third-party APIs
+    "S105", "S106", "S107",  # fixture credentials are fake by construction
+    "PLC2701",           # tests may reach into private helpers they cover
+    "N815",              # fakes mirror upstream camelCase API names verbatim
+]
 "go2/storage/migrations/**" = ["INP001"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Typer resolves these annotations at runtime, so their imports must stay at
+# module scope. Telling Ruff that is a configuration fact, not a suppression.
+runtime-evaluated-decorators = ["typer.Typer.command", "typer.Typer.callback"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -67,3 +85,6 @@ python-version = "3.12"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: loads the real embedding model (~600 MB download on first run)",
+]

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "go2assistant": {
+      "command": "uv",
+      "args": ["run", "--directory", ".", "go2", "serve"]
+    }
+  }
+}

@@ -35,6 +35,9 @@ These are load-bearing. Changing one is a design decision, not a refactor.
    later without a migration.
 6. **Retrieval stays local.** Embeddings and reranking run on-device. Only generation
    calls out.
+7. **Hybrid search, never vector-only.** Exact identifiers (invoice numbers, client
+   names) are what embeddings are worst at and what people search for. Vector and
+   full-text results are fused by Reciprocal Rank Fusion, then reranked.
 
 ## Data handling
 
@@ -45,8 +48,14 @@ These are load-bearing. Changing one is a design decision, not a refactor.
 ## Commands
 
 ```bash
-docker compose up -d db     # dev database
-uv run go2 migrate          # apply SQL migrations
-uv run go2 sync --source gdrive
-uv run pytest
+uv run go2 migrate                     # apply SQL migrations
+uv run go2 ingest ~/Documents/work     # index a local folder
+uv run go2 search "your question"      # check retrieval from the terminal
+uv run go2 status                      # what is indexed
+uv run go2 serve                       # MCP server on stdio
+uv run pytest                          # 142 tests
+uv run pytest -m "not slow"            # skip the model-loading ones
 ```
+
+The dev database is Homebrew `postgresql@17` on **port 5433** (5432 is an older
+`postgresql@15`). `docker-compose.yml` targets the same port if you prefer Docker.
