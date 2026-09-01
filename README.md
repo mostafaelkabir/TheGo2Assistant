@@ -20,48 +20,46 @@ go2 search "how much did we agree to pay Acme?"
 
 ```mermaid
 flowchart LR
-    subgraph SRC[Sources]
+    subgraph SRC["Sources"]
         direction TB
-        F[Local folder]
-        G[Google Drive]
-        O[OneDrive]
+        F["Local folder"]
+        G["Google Drive"]
+        O["OneDrive"]
     end
 
-    subgraph ING[Ingestion · one pipeline for every source]
+    subgraph ING["Ingestion — one pipeline for every source"]
         direction TB
-        X[Extract<br/><small>pdf · docx · pptx · xlsx · md</small>]
-        C[Chunk<br/><small>split on structure</small>]
-        E[Embed]
+        X["Extract<br/>pdf · docx · pptx · xlsx · md"]
+        C["Chunk<br/>split on structure"]
+        E["Embed"]
+        X --> C --> E
     end
 
-    subgraph DB[(PostgreSQL + pgvector)]
+    subgraph STORE["PostgreSQL + pgvector"]
         direction TB
-        D[documents<br/><small>metadata · provenance</small>]
-        K[chunks<br/><small>vector + tsvector</small>]
-        J[jobs<br/><small>background queue</small>]
+        D[("documents<br/>metadata · provenance")]
+        K[("chunks<br/>vector + tsvector")]
+        J[("jobs<br/>background queue")]
     end
 
-    subgraph RET[Retrieval · hybrid]
+    subgraph RET["Retrieval — hybrid"]
         direction TB
-        V[Vector search] --> R[RRF fusion]
-        T[Full-text search] --> R
-        R --> RK[Rerank]
+        V["Vector search"] --> R["RRF fusion"]
+        T["Full-text search"] --> R
+        R --> RK["Rerank"]
     end
 
-    subgraph API[Interfaces]
+    subgraph API["Interfaces"]
         direction TB
-        CLI[go2 CLI]
-        MCP[MCP server<br/><small>4 tools</small>]
+        CLI["go2 CLI"]
+        MCP["MCP server<br/>4 tools"]
     end
 
-    SRC --> ING --> DB
-    DB --> RET --> API
-    API -.-> U([You / Claude Code])
-
-    classDef store fill:#eef4ff,stroke:#5b7fc7
-    classDef work fill:#f3f7ee,stroke:#7a9c5e
-    class DB store
-    class ING,RET work
+    SRC --> ING
+    ING --> STORE
+    STORE --> RET
+    RET --> API
+    API --> U["You / Claude Code"]
 ```
 
 **Providers sit behind interfaces.** Embedding and reranking run either on-device (Qwen3 + a cross-encoder, nothing leaves the machine) or through the Jina API (roughly 9× faster, and the laptop stays idle). One config line switches them.
