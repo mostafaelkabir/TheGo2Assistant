@@ -38,7 +38,10 @@ These are load-bearing. Changing one is a design decision, not a refactor.
 7. **Bound every model batch.** fastembed defaults to `batch_size=256`, which on CPU
    buys no throughput and cost 24 GB resident on a 16 GB machine — the process
    swap-thrashed instead of computing. Throughput is flat from batch 1 to 4.
-8. **Hybrid search, never vector-only.** Exact identifiers (invoice numbers, client
+8. **Every bad answer becomes an eval case.** Retrieval regressions are silent --
+   the system keeps returning confident passages, just the wrong ones. `go2 evaluate`
+   is the only thing that catches that; a fix without a case will regress unnoticed.
+9. **Hybrid search, never vector-only.** Exact identifiers (invoice numbers, client
    names) are what embeddings are worst at and what people search for. Vector and
    full-text results are fused by Reciprocal Rank Fusion, then reranked.
 
@@ -57,7 +60,8 @@ go2 ingest ~/big-folder --background # queue it instead
 go2 worker                          # drain the queue
 go2 jobs                            # what is queued
 go2 search "your question"          # check retrieval from the terminal
-go2 status                          # what is indexed
+go2 evaluate                        # run eval/questions.yaml, report rank + MRR
+go2 status                          # what is indexed, and which model embedded it
 go2 serve                           # MCP server on stdio
 
 uv run pytest                       # full suite

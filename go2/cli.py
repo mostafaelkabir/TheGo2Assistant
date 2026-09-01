@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
+from go2.evaluation import EvalFileError, load_cases, run_all, summarise
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
 from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
@@ -190,6 +191,54 @@ def search(
         snippet = " ".join(hit.text.split())[:220]
         typer.echo(f"\n{rank}. {hit.citation()}   [{hit.score:.3f}]")
         typer.echo(f"   {snippet}...")
+
+
+@app.command()
+def evaluate(
+    path: Annotated[Path, typer.Argument(help="YAML file of eval cases.")] = Path(
+        "eval/questions.yaml"
+    ),
+    *,
+    limit: Annotated[int, typer.Option(help="Hits to consider per question.")] = 5,
+    verbose: Annotated[bool, typer.Option("--verbose", help="Show what came back.")] = False,
+) -> None:
+    """Check retrieval against known question/document pairs.
+
+    Retrieval regressions are silent -- the system keeps returning
+    confident-looking passages, just the wrong ones. Running this after any
+    change to chunking, embedding, or reranking is what turns that into a
+    number you can compare.
+    """
+    try:
+        cases = load_cases(path)
+    except EvalFileError as exc:
+        typer.echo(
+            f"{exc}\n\nCreate one like:\n"
+            "  - question: How much did the pipeline cost?\n"
+            "    expect_document: RESUME_CONTEXT\n"
+            '    expect_text: "507"        # optional'
+        )
+        raise typer.Exit(code=1) from exc
+
+    outcomes = run_all(cases, limit=limit)
+    for outcome in outcomes:
+        mark = "PASS" if outcome.passed else "FAIL"
+        rank = f"@{outcome.rank}" if outcome.rank else "--"
+        typer.echo(f"{mark} {rank:>3}  {outcome.case.question}")
+        if not outcome.passed or verbose:
+            typer.echo(f"          expected: {outcome.case.expect_document}")
+            typer.echo(f"          returned: {', '.join(outcome.returned[:4]) or '(nothing)'}")
+            if outcome.case.expect_text and not outcome.text_found:
+                typer.echo(f"          missing text: {outcome.case.expect_text!r}")
+
+    stats = summarise(outcomes)
+    typer.echo(
+        f"\n{stats['passed']}/{stats['total']} passed"
+        f"  |  {stats['top1']} at rank 1"
+        f"  |  MRR {stats['mrr']:.2f}"
+    )
+    if stats["passed"] < stats["total"]:
+        raise typer.Exit(code=1)
 
 
 @app.command()
