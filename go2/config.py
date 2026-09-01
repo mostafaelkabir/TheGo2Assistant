@@ -46,8 +46,11 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr = SecretStr("")
     langfuse_host: str = "https://cloud.langfuse.com"
 
-    chunk_tokens: int = Field(default=1000, ge=200, le=4000)
-    chunk_overlap_tokens: int = Field(default=120, ge=0, le=1000)
+    # Sized in characters, not tokens: the corpus is mixed Arabic/English and
+    # a token budget from another model's tokenizer misestimates one script
+    # badly. See go2.rag.chunking for the full reasoning.
+    chunk_chars: int = Field(default=3200, ge=500, le=20000)
+    chunk_overlap_chars: int = Field(default=400, ge=0, le=5000)
 
     @property
     def langfuse_enabled(self) -> bool:
