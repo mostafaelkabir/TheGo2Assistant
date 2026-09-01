@@ -44,6 +44,7 @@ class DocumentState:
     document_id: str
     content_hash: str | None
     status: DocStatus
+    embedding_model: str | None
 
 
 def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> DocumentState | None:
@@ -54,7 +55,7 @@ def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> D
     """
     row = conn.execute(
         text("""
-            SELECT id, content_hash, status FROM documents
+            SELECT id, content_hash, status, embedding_model FROM documents
              WHERE tenant_id = :tenant_id AND source = :source AND external_id = :external_id
         """),
         {
@@ -65,7 +66,12 @@ def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> D
     ).one_or_none()
     if row is None:
         return None
-    return DocumentState(document_id=str(row.id), content_hash=row.content_hash, status=row.status)
+    return DocumentState(
+        document_id=str(row.id),
+        content_hash=row.content_hash,
+        status=row.status,
+        embedding_model=row.embedding_model,
+    )
 
 
 def upsert_document(

@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     jina_api_key: SecretStr = SecretStr("")
     jina_embedding_model: str = "jina-embeddings-v5-text-small"  # 1024 dims, matches the column
     jina_rerank_model: str = "jina-reranker-v3.5"
+    # The free tier allows 100k tokens per minute. Requests are paced to stay
+    # under this; raise it if the account is upgraded.
+    jina_tokens_per_minute: int = Field(default=100_000, ge=1000)
 
     embedding_model: str = "electroglyph/Qwen3-Embedding-0.6B-onnx-uint8"
     embedding_dim: int = 1024

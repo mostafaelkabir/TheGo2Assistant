@@ -14,6 +14,8 @@ opt-in through configuration rather than the default.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -28,10 +30,77 @@ logger = logging.getLogger(__name__)
 EMBEDDINGS_URL = "https://api.jina.ai/v1/embeddings"
 RERANK_URL = "https://api.jina.ai/v1/rerank"
 
-# The free tier allows 100 requests/minute and 100k tokens/minute, so requests
-# are batched rather than sent per chunk.
+# Batches are built to a token budget rather than a fixed count. Chunk sizes
+# vary by an order of magnitude, so "64 items" can be 5k tokens or 50k -- and
+# the API bills and rate-limits by token, not by item.
 DEFAULT_BATCH = 64
+# Rough characters-per-token for mixed Latin/Arabic text. Deliberately
+# conservative: overestimating tokens costs a little throughput, while
+# underestimating them trips the rate limit and fails the whole ingest.
+CHARS_PER_TOKEN = 3.0
+
 _TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+_MAX_ATTEMPTS = 5
+_WINDOW_SECONDS = 60.0
+
+
+def estimate_tokens(text: str) -> int:
+    """Approximate the token count the API will bill for this text."""
+    return max(1, int(len(text) / CHARS_PER_TOKEN))
+
+
+class _TokenBudget:
+    """Keeps requests inside the account's tokens-per-minute allowance.
+
+    A sliding window rather than a fixed one: the limit is enforced per rolling
+    minute, so resetting a counter every 60 seconds would still burst over the
+    boundary and be rejected.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._spent: list[tuple[float, int]] = []
+
+    def acquire(self, tokens: int) -> None:
+        """Block until ``tokens`` fit within the rolling allowance."""
+        limit = get_settings().jina_tokens_per_minute
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._spent = [(t, n) for t, n in self._spent if now - t < _WINDOW_SECONDS]
+                used = sum(n for _, n in self._spent)
+                if used + tokens <= limit or not self._spent:
+                    self._spent.append((now, tokens))
+                    return
+                oldest = min(t for t, _ in self._spent)
+                wait = _WINDOW_SECONDS - (now - oldest) + 0.5
+            logger.info("rate limit: waiting %.0fs for token budget", wait)
+            time.sleep(wait)
+
+
+_budget = _TokenBudget()
+
+
+def _batches(texts: Sequence[str]) -> list[list[str]]:
+    """Split texts into batches that fit the per-request token budget."""
+    limit = max(1, get_settings().jina_tokens_per_minute // 2)
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_tokens = 0
+
+    for text in texts:
+        tokens = estimate_tokens(text)
+        too_many = len(current) >= DEFAULT_BATCH
+        too_big = current and current_tokens + tokens > limit
+        if too_many or too_big:
+            batches.append(current)
+            current, current_tokens = [], 0
+        current.append(text)
+        current_tokens += tokens
+
+    if current:
+        batches.append(current)
+    return batches
 
 
 class JinaError(RuntimeError):
@@ -68,15 +137,32 @@ def _post(url: str, payload: dict[str, Any], client: httpx.Client | None = None)
     owns = client is None
     http = client or httpx.Client(timeout=_TIMEOUT)
     try:
-        response = http.post(url, json=payload, headers=_headers())
-        if response.status_code != httpx.codes.OK:
-            detail = response.text[:300]
-            msg = f"Jina API returned {response.status_code}: {detail}"
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                response = http.post(url, json=payload, headers=_headers())
+            except httpx.HTTPError as exc:
+                msg = f"could not reach the Jina API: {exc}"
+                raise JinaError(msg) from exc
+
+            if response.status_code == httpx.codes.OK:
+                return dict(response.json())
+
+            # 429 means the estimate was optimistic, not that the request is
+            # wrong. Honour Retry-After when the API sends one; otherwise back
+            # off geometrically rather than hammering a limit already tripped.
+            if response.status_code == httpx.codes.TOO_MANY_REQUESTS and attempt < _MAX_ATTEMPTS:
+                delay = float(response.headers.get("retry-after") or 0) or min(
+                    _WINDOW_SECONDS, 2.0**attempt
+                )
+                logger.info("rate limited, retrying in %.0fs (attempt %d)", delay, attempt)
+                time.sleep(delay)
+                continue
+
+            msg = f"Jina API returned {response.status_code}: {response.text[:300]}"
             raise JinaError(msg)
-        return dict(response.json())
-    except httpx.HTTPError as exc:
-        msg = f"could not reach the Jina API: {exc}"
-        raise JinaError(msg) from exc
+
+        msg = f"Jina API still rate limiting after {_MAX_ATTEMPTS} attempts"
+        raise JinaError(msg)
     finally:
         if owns:
             http.close()
@@ -107,8 +193,8 @@ def embed(
     settings = get_settings()
     vectors: list[list[float]] = []
 
-    for start in range(0, len(texts), DEFAULT_BATCH):
-        batch = list(texts[start : start + DEFAULT_BATCH])
+    for batch in _batches(texts):
+        _budget.acquire(sum(estimate_tokens(t) for t in batch))
         body = _post(
             EMBEDDINGS_URL,
             {

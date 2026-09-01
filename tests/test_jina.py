@@ -183,3 +183,70 @@ def test_a_missing_key_explains_both_ways_out(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(jina.JinaError, match="GO2_JINA_API_KEY"):
         jina.embed(["a"], task="retrieval.passage", client=_client(handler))
+
+
+class TestTokenBatching:
+    """Batching is by token budget, because that is what the API limits."""
+
+    def test_a_small_batch_stays_whole(self) -> None:
+        assert jina._batches(["a", "b", "c"]) == [["a", "b", "c"]]  # noqa: SLF001
+
+    def test_batches_split_on_the_item_cap(self) -> None:
+        batches = jina._batches(["x"] * (jina.DEFAULT_BATCH + 1))  # noqa: SLF001
+        assert len(batches) == EXPECTED_TWO
+        assert len(batches[0]) == jina.DEFAULT_BATCH
+
+    def test_batches_split_on_the_token_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Two chunks can exceed a token budget that a hundred short ones would
+        # not, which is exactly why counting items is the wrong unit.
+        monkeypatch.setenv("GO2_JINA_TOKENS_PER_MINUTE", "2000")
+        get_settings.cache_clear()
+        huge = "w" * 3000  # ~1000 tokens each, budget/2 = 1000
+        assert len(jina._batches([huge, huge, huge])) > 1  # noqa: SLF001
+
+    def test_token_estimate_is_conservative(self) -> None:
+        # Underestimating trips the rate limit and fails the run; overestimating
+        # only costs a little throughput.
+        assert jina.estimate_tokens("a" * 300) >= 100
+        assert jina.estimate_tokens("") == 1
+
+
+class TestRateLimitRetry:
+    """A 429 means slow down, not give up."""
+
+    def test_retries_after_a_429_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(jina.time, "sleep", lambda _: None)
+        calls = 0
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(429, text="rate limited", headers={"retry-after": "0"})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.0] * DIM}]})
+
+        vectors = jina.embed(["a"], task="retrieval.passage", client=_client(handler))
+        assert calls == EXPECTED_TWO
+        assert len(vectors) == 1
+
+    def test_gives_up_with_a_clear_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(jina.time, "sleep", lambda _: None)
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, text="rate limited")
+
+        with pytest.raises(jina.JinaError, match="rate limit"):
+            jina.embed(["a"], task="retrieval.passage", client=_client(handler))
+
+    def test_a_non_429_error_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(jina.time, "sleep", lambda _: None)
+        calls = 0
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(401, text="invalid key")
+
+        with pytest.raises(jina.JinaError, match="invalid key"):
+            jina.embed(["a"], task="retrieval.passage", client=_client(handler))
+        assert calls == 1  # a bad key will not fix itself
