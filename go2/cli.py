@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Annotated
@@ -14,6 +15,7 @@ from sqlalchemy import text
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
+from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
 from go2.rag.retrieval import SearchFilters, SearchOptions
 from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
@@ -57,6 +59,12 @@ def ingest(
     all_files: Annotated[
         bool, typer.Option("--all", help="Include every file, not just supported formats.")
     ] = False,
+    background: Annotated[
+        bool, typer.Option("--background", help="Queue the work and exit; run `go2 worker`.")
+    ] = False,
+    max_size: Annotated[
+        int, typer.Option(help="Skip files larger than this many bytes.")
+    ] = DEFAULT_MAX_BYTES,
 ) -> None:
     """Ingest local files through the same pipeline the connectors use.
 
@@ -72,9 +80,23 @@ def ingest(
         raise typer.Exit(code=1)
 
     tenant_id = default_tenant_id()
-    tally: Counter[str] = Counter()
 
-    for path in files:
+    if background:
+        queued = enqueue_paths(files, tenant_id=tenant_id, source=UPLOAD_SOURCE, account="local")
+        typer.echo(f"queued {queued} files\nrun `go2 worker` to process them")
+        return
+
+    oversized = [p for p in files if p.stat().st_size > max_size]
+    for path in oversized:
+        typer.echo(f"{'too-large':9} {path.name}  ({path.stat().st_size / 1_000_000:.1f} MB)")
+    files = [p for p in files if p.stat().st_size <= max_size]
+
+    tally: Counter[str] = Counter()
+    tally["too-large"] = len(oversized)
+    total = len(files)
+    started = time.monotonic()
+
+    for index, path in enumerate(files, start=1):
         # Each file gets its own transaction and its own error boundary, so one
         # unreadable or corrupt file cannot abort the rest of the batch.
         try:
@@ -104,11 +126,22 @@ def ingest(
                 content=FetchedContent(data=data, filename=path.name, mime=""),
             )
 
-        typer.echo(f"{result.status:9} {path.name}  ({_describe(result)})")
+        typer.echo(
+            f"[{index:>{len(str(total))}}/{total}] {result.status:9} {path.name}"
+            f"  ({_describe(result)}){_eta(started, index, total)}"
+        )
         tally["unchanged" if result.unchanged else result.status] += 1
 
-    summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()))
-    typer.echo(f"\n{summary}")
+    summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()) if count)
+    typer.echo(f"\n{summary} in {time.monotonic() - started:.0f}s")
+
+
+def _eta(started: float, done: int, total: int) -> str:
+    """A trailing estimate, shown only once there is enough data to mean anything."""
+    if done < 2 or done >= total:  # noqa: PLR2004 -- one sample is not a rate.
+        return ""
+    remaining = (time.monotonic() - started) / done * (total - done)
+    return f"  ~{remaining / 60:.0f}m left" if remaining > 90 else f"  ~{remaining:.0f}s left"  # noqa: PLR2004 -- seconds vs minutes threshold.
 
 
 def _describe(result: IngestResult) -> str:
@@ -164,6 +197,63 @@ def serve() -> None:
     from go2.mcp_server import main as run_server  # noqa: PLC0415 -- defer the mcp import.
 
     run_server()
+
+
+@app.command()
+def worker(
+    *,
+    once: Annotated[
+        bool, typer.Option("--once", help="Exit when the queue empties instead of polling.")
+    ] = False,
+    max_size: Annotated[
+        int, typer.Option(help="Skip files larger than this many bytes.")
+    ] = DEFAULT_MAX_BYTES,
+) -> None:
+    """Process queued ingestion work.
+
+    Embedding is slow enough on CPU that a large folder is better handed to a
+    worker than watched in a terminal. Safe to run more than one.
+    """
+    tenant_id = default_tenant_id()
+    started = time.monotonic()
+
+    def progress(name: str, chunks: int, remaining: int) -> None:
+        typer.echo(f"{chunks:>4} chunks  {name}   ({remaining} left)")
+
+    typer.echo("worker running — ctrl-c to stop" if not once else "draining queue…")
+    try:
+        report = run_worker(
+            tenant_id=tenant_id, max_bytes=max_size, once=once, on_progress=progress
+        )
+    except KeyboardInterrupt:
+        typer.echo(f"\nstopped after {time.monotonic() - started:.0f}s")
+        return
+
+    typer.echo(
+        f"\n{report.processed} files, {report.chunks} chunks, {report.failed} failed "
+        f"in {report.seconds:.0f}s ({report.rate:.1f} files/min)"
+    )
+
+
+@app.command()
+def jobs(
+    *, clear: Annotated[bool, typer.Option("--clear", help="Delete finished jobs.")] = False
+) -> None:
+    """Show the ingestion queue."""
+    tenant_id = default_tenant_id()
+    with connect() as conn:
+        if clear:
+            removed = repo.clear_finished_jobs(conn, tenant_id=tenant_id)
+            typer.echo(f"removed {removed} finished jobs")
+            return
+        counts = repo.job_counts(conn, tenant_id=tenant_id)
+
+    if not counts:
+        typer.echo("queue is empty")
+        return
+    for state in ("queued", "running", "done", "failed"):
+        if counts.get(state):
+            typer.echo(f"{state:9} {counts[state]:>6}")
 
 
 @app.command()

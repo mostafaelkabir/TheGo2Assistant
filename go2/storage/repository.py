@@ -294,3 +294,98 @@ def count_chunks(conn: Connection, *, tenant_id: str, document_id: str) -> int:
             {"document_id": document_id, "tenant_id": tenant_id},
         ).scalar_one()
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Job:
+    """One unit of queued work."""
+
+    id: int
+    kind: str
+    payload: dict[str, Any]
+    attempts: int
+
+
+def enqueue_job(conn: Connection, *, tenant_id: str, kind: str, payload: dict[str, Any]) -> int:
+    """Add a job to the queue.
+
+    Returns:
+        The new job id.
+    """
+    return int(
+        conn.execute(
+            text("""
+                INSERT INTO jobs (tenant_id, kind, payload)
+                VALUES (:tenant_id, :kind, CAST(:payload AS jsonb))
+                RETURNING id
+            """),
+            {"tenant_id": tenant_id, "kind": kind, "payload": json.dumps(payload)},
+        ).scalar_one()
+    )
+
+
+def claim_job(conn: Connection, *, tenant_id: str, kind: str) -> Job | None:
+    """Take the next runnable job, marking it running.
+
+    ``FOR UPDATE SKIP LOCKED`` is what makes this safe to run from several
+    workers at once: each transaction locks its own row and steps over rows
+    another worker already holds, so no job is handed out twice and no worker
+    blocks waiting for one.
+
+    Returns:
+        The claimed job, or ``None`` when the queue is empty.
+    """
+    row = conn.execute(
+        text("""
+            WITH next AS (
+                SELECT id FROM jobs
+                 WHERE tenant_id = :tenant_id AND kind = :kind
+                   AND status = 'queued' AND run_after <= now()
+                 ORDER BY id
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT 1
+            )
+            UPDATE jobs j
+               SET status = 'running', attempts = j.attempts + 1, updated_at = now()
+              FROM next
+             WHERE j.id = next.id
+            RETURNING j.id, j.kind, j.payload, j.attempts
+        """),
+        {"tenant_id": tenant_id, "kind": kind},
+    ).one_or_none()
+    if row is None:
+        return None
+    payload = row.payload if isinstance(row.payload, dict) else json.loads(row.payload)
+    return Job(id=int(row.id), kind=row.kind, payload=payload, attempts=int(row.attempts))
+
+
+def finish_job(conn: Connection, *, job_id: int, error: str | None = None) -> None:
+    """Mark a job done, or failed with a reason."""
+    conn.execute(
+        text("""
+            UPDATE jobs
+               SET status = CAST(:status AS job_status), last_error = :error, updated_at = now()
+             WHERE id = :job_id
+        """),
+        {"status": "failed" if error else "done", "error": error, "job_id": job_id},
+    )
+
+
+def job_counts(conn: Connection, *, tenant_id: str) -> dict[str, int]:
+    """Return queued/running/done/failed counts for this tenant."""
+    rows = conn.execute(
+        text("SELECT status, count(*) AS n FROM jobs WHERE tenant_id = :t GROUP BY status"),
+        {"t": tenant_id},
+    ).all()
+    return {str(r.status): int(r.n) for r in rows}
+
+
+def clear_finished_jobs(conn: Connection, *, tenant_id: str) -> int:
+    """Delete completed jobs, keeping failures for inspection.
+
+    Returns:
+        How many rows were removed.
+    """
+    return conn.execute(
+        text("DELETE FROM jobs WHERE tenant_id = :t AND status = 'done'"), {"t": tenant_id}
+    ).rowcount
