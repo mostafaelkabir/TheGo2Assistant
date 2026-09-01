@@ -38,10 +38,20 @@ class Settings(BaseSettings):
     # Retrieval runs on-device: no API, no cost, no data leaving the machine.
     embedding_model: str = "electroglyph/Qwen3-Embedding-0.6B-onnx-uint8"
     embedding_dim: int = 1024
+    # fastembed defaults to the system temp directory, which macOS purges --
+    # losing 1.7 GB of weights and re-downloading them. Keep them somewhere
+    # stable instead.
+    model_cache_dir: Path = Path.home() / ".cache" / "go2" / "models"
 
     # Qwen3-Reranker is a causal LM scoring yes/no logits, not a cross-encoder,
     # so fastembed cannot serve it. This is the multilingual cross-encoder it
     # does support, and it handles Arabic queries against English passages.
+    # fastembed defaults to 256, which on CPU buys nothing and costs a lot:
+    # measured at 24 GB resident on a 59-chunk file, enough to swap-thrash a
+    # 16 GB machine to a standstill. Throughput is flat from 1 to 4 and only
+    # memory grows, so a small batch is strictly better here.
+    embedding_batch_size: int = Field(default=4, ge=1, le=64)
+
     reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
     # How many fused candidates the cross-encoder scores. Reranking dominates
     # search latency, and cost is linear in candidates x characters, so these

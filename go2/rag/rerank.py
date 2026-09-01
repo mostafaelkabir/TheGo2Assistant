@@ -39,9 +39,13 @@ def get_reranker() -> TextCrossEncoder:
     global _model  # noqa: PLW0603 -- one model per process; loading twice doubles memory.
     with _lock:
         if _model is None:
-            name = get_settings().reranker_model
-            logger.info("loading reranker %s", name)
-            _model = TextCrossEncoder(model_name=name)
+            settings = get_settings()
+            settings.model_cache_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("loading reranker %s", settings.reranker_model)
+            _model = TextCrossEncoder(
+                model_name=settings.reranker_model,
+                cache_dir=str(settings.model_cache_dir),
+            )
         return _model
 
 

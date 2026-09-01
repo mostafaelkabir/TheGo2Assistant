@@ -74,7 +74,11 @@ def get_model() -> TextEmbedding:
             settings = get_settings()
             _register(settings.embedding_model, settings.embedding_dim)
             logger.info("loading embedding model %s", settings.embedding_model)
-            _model = TextEmbedding(model_name=settings.embedding_model)
+            settings.model_cache_dir.mkdir(parents=True, exist_ok=True)
+            _model = TextEmbedding(
+                model_name=settings.embedding_model,
+                cache_dir=str(settings.model_cache_dir),
+            )
         return _model
 
 
@@ -102,7 +106,9 @@ def embed_documents(texts: Sequence[str]) -> list[list[float]]:
     """
     if not texts:
         return []
-    return [_normalise(v.tolist()) for v in get_model().embed(list(texts))]
+    # The batch size is bounded deliberately -- see Settings.embedding_batch_size.
+    batch = get_settings().embedding_batch_size
+    return [_normalise(v.tolist()) for v in get_model().embed(list(texts), batch_size=batch)]
 
 
 def embed_query(text: str) -> list[float]:
