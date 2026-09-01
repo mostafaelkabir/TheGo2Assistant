@@ -35,8 +35,13 @@ mcp = MCPServer(
         "Use fetch_document when a snippet is suggestive but incomplete and you need the "
         "surrounding text.\n\n"
         "Always cite the `citation` field of any passage you rely on, so the user can "
-        "verify the answer against the original file. If the documents do not contain "
-        "the answer, say so plainly rather than inferring one."
+        "verify the answer against the original file.\n\n"
+        "This index covers ingested files only. It is frequently one of several "
+        "sources -- a project may also have a tracker, a wiki, or a chat history "
+        "reachable through other tools. An empty result here means the answer is not "
+        "in the indexed files; it does not mean the answer does not exist. Say which "
+        "of the two you mean, and check the other sources available to you before "
+        "concluding something was never recorded."
     ),
 )
 

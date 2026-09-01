@@ -134,3 +134,11 @@ class TestToolsAgainstRealData:
         docs = list_documents(status="indexed", limit=50)
         assert docs
         assert all(d["status"] == "indexed" for d in docs)
+
+    def test_the_server_admits_it_may_not_be_the_only_source(self) -> None:
+        # Without this, an empty search reads as "not recorded anywhere", and
+        # the model stops instead of checking the tracker or chat history that
+        # sits behind another tool.
+        instructions = (mcp.instructions or "").lower()
+        assert "other sources" in instructions
+        assert "does not mean the answer does not exist" in instructions
