@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Annotated
 
@@ -12,7 +13,7 @@ from sqlalchemy import text
 
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.extraction.registry import supported_extensions
-from go2.jobs.ingest import ingest_document
+from go2.jobs.ingest import IngestResult, ingest_document
 from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
@@ -63,9 +64,18 @@ def ingest(
         raise typer.Exit(code=1)
 
     tenant_id = default_tenant_id()
-    indexed = skipped = 0
+    tally: Counter[str] = Counter()
 
     for path in files:
+        # Each file gets its own transaction and its own error boundary, so one
+        # unreadable or corrupt file cannot abort the rest of the batch.
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            typer.echo(f"{'failed':9} {path.name}  (unreadable: {exc.strerror or exc})")
+            tally["failed"] += 1
+            continue
+
         with connect() as conn:
             scope = Scope(
                 tenant_id=tenant_id,
@@ -74,7 +84,6 @@ def ingest(
                 ),
                 source=UPLOAD_SOURCE,
             )
-            data = path.read_bytes()
             result = ingest_document(
                 conn,
                 scope=scope,
@@ -87,19 +96,25 @@ def ingest(
                 content=FetchedContent(data=data, filename=path.name, mime=""),
             )
 
-        detail = f"{result.chunks} chunks"
-        if result.sheets:
-            detail += f", {result.sheets} sheets"
-        if result.ocr_pages:
-            detail += f", {result.ocr_pages} pages awaiting OCR"
-        typer.echo(f"{result.status:9} {path.name}  ({detail})")
+        typer.echo(f"{result.status:9} {path.name}  ({_describe(result)})")
+        tally["unchanged" if result.unchanged else result.status] += 1
 
-        if result.status == "skipped":
-            skipped += 1
-        else:
-            indexed += 1
+    summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()))
+    typer.echo(f"\n{summary}")
 
-    typer.echo(f"\n{indexed} ingested, {skipped} skipped")
+
+def _describe(result: IngestResult) -> str:
+    """One-line detail for a finished document."""
+    if result.unchanged:
+        return f"unchanged, {result.chunks} chunks retained"
+    if result.reason and result.status in {"skipped", "failed"}:
+        return result.reason
+    detail = f"{result.chunks} chunks"
+    if result.sheets:
+        detail += f", {result.sheets} sheets"
+    if result.ocr_pages:
+        detail += f", {result.ocr_pages} pages awaiting OCR"
+    return detail
 
 
 @app.command()

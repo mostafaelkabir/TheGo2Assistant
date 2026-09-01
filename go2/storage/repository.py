@@ -9,6 +9,7 @@ than an audit of every query.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import text
@@ -32,6 +33,37 @@ def _vector_literal(values: Sequence[float]) -> str:
     connection, which is easy to forget and fails only at write time.
     """
     return "[" + ",".join(repr(float(v)) for v in values) + "]"
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentState:
+    """What the index already knows about a document."""
+
+    document_id: str
+    content_hash: str | None
+    status: DocStatus
+
+
+def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> DocumentState | None:
+    """Return the stored state of a document, or ``None`` if it is new.
+
+    Read before ingesting so unchanged content can skip extraction and
+    embedding entirely.
+    """
+    row = conn.execute(
+        text("""
+            SELECT id, content_hash, status FROM documents
+             WHERE tenant_id = :tenant_id AND source = :source AND external_id = :external_id
+        """),
+        {
+            "tenant_id": scope.tenant_id,
+            "source": scope.source,
+            "external_id": external_id,
+        },
+    ).one_or_none()
+    if row is None:
+        return None
+    return DocumentState(document_id=str(row.id), content_hash=row.content_hash, status=row.status)
 
 
 def upsert_document(

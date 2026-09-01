@@ -8,7 +8,8 @@ uploads and every connector alike.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # A page whose text layer yields fewer than this many non-whitespace characters
 # is treated as scanned. Chosen to survive stray headers and page numbers that
@@ -59,6 +60,27 @@ class Extracted:
     # Pages whose text layer was empty enough to look scanned. The OCR stage
     # reads this rather than re-deciding, so the policy lives in one place.
     ocr_pages: list[int] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, Any]:
+        """Serialise for the extraction cache.
+
+        Extraction is the expensive half of ingestion -- OCR especially -- so
+        the result is cached by content hash and replayed rather than redone.
+        """
+        return {
+            "blocks": [asdict(b) for b in self.blocks],
+            "sheets": [asdict(s) for s in self.sheets],
+            "ocr_pages": list(self.ocr_pages),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> Extracted:
+        """Rebuild a cached extraction result."""
+        return cls(
+            blocks=[Block(**b) for b in payload.get("blocks", [])],
+            sheets=[SheetTable(**s) for s in payload.get("sheets", [])],
+            ocr_pages=list(payload.get("ocr_pages", [])),
+        )
 
     @property
     def text_length(self) -> int:

@@ -10,11 +10,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy import text
 from typer.testing import CliRunner
 
 from go2.cli import _collect, app
+from go2.storage.db import connect
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 runner = CliRunner()
@@ -74,7 +77,22 @@ class TestCommands:
         assert "nothing to ingest" in result.stdout
 
 
+@pytest.fixture
+def _clean_uploads() -> Iterator[None]:
+    """Remove rows the CLI committed.
+
+    The other database tests roll back, but the CLI opens its own connections
+    and commits them, so its residue has to be cleared explicitly or it
+    accumulates in the developer's database run after run.
+    """
+    yield
+    with connect() as conn:
+        conn.execute(text("DELETE FROM documents WHERE source = :s"), {"s": "upload"})
+        conn.execute(text("DELETE FROM connections WHERE source = :s"), {"s": "upload"})
+
+
 @pytest.mark.slow
+@pytest.mark.usefixtures("_clean_uploads")
 class TestIngestCommand:
     """The upload path, against the real database."""
 
@@ -90,4 +108,30 @@ class TestIngestCommand:
         assert result.exit_code == 0
         assert "indexed" in result.stdout
         assert "skipped" in result.stdout
-        assert "2 ingested, 1 skipped" in result.stdout
+        assert "2 indexed" in result.stdout
+        assert "1 skipped" in result.stdout
+
+    def test_a_corrupt_file_does_not_abort_the_batch(
+        self, tmp_path: Path, pdf_with_text: bytes
+    ) -> None:
+        # Files are processed in sorted order, so the corrupt one sits between
+        # two good ones: if it aborted the loop, the third would never index.
+        (tmp_path / "1-good.pdf").write_bytes(pdf_with_text)
+        (tmp_path / "2-corrupt.pdf").write_bytes(b"%PDF-1.7\n" + b"\xde\xad\xbe\xef" * 200)
+        (tmp_path / "3-good.pdf").write_bytes(pdf_with_text)
+
+        result = runner.invoke(app, ["ingest", str(tmp_path)])
+
+        assert result.exit_code == 0
+        assert "failed" in result.stdout
+        assert "3-good.pdf" in result.stdout
+        assert "2 indexed" in result.stdout
+
+    def test_a_second_run_over_unchanged_files_does_no_work(
+        self, tmp_path: Path, pdf_with_text: bytes
+    ) -> None:
+        (tmp_path / "Contract.pdf").write_bytes(pdf_with_text)
+        runner.invoke(app, ["ingest", str(tmp_path)])
+
+        result = runner.invoke(app, ["ingest", str(tmp_path)])
+        assert "unchanged" in result.stdout
