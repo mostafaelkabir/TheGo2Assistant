@@ -120,17 +120,22 @@ class TestCommands:
 
 
 @pytest.fixture
-def _clean_uploads() -> Iterator[None]:
-    """Remove rows the CLI committed.
+def _clean_uploads(tmp_path: Path) -> Iterator[None]:
+    """Remove only the rows this test committed.
 
     The other database tests roll back, but the CLI opens its own connections
-    and commits them, so its residue has to be cleared explicitly or it
-    accumulates in the developer's database run after run.
+    and commits them, so its residue has to be cleared explicitly.
+
+    Scoped to this test's tmp_path rather than to `source = 'upload'`. The
+    broad delete also destroys a developer's real locally-ingested corpus --
+    running the suite would silently wipe the index they were testing against.
     """
     yield
     with connect() as conn:
-        conn.execute(text("DELETE FROM documents WHERE source = :s"), {"s": "upload"})
-        conn.execute(text("DELETE FROM connections WHERE source = :s"), {"s": "upload"})
+        conn.execute(
+            text("DELETE FROM documents WHERE source = :s AND path LIKE :prefix"),
+            {"s": "upload", "prefix": f"{tmp_path}%"},
+        )
 
 
 @pytest.mark.slow
