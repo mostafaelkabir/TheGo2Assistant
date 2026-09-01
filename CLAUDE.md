@@ -34,8 +34,14 @@ These are load-bearing. Changing one is a design decision, not a refactor.
 5. **`tenant_id` on every table and every query.** Single tenant today, multi-tenant
    later without a migration.
 6. **Retrieval stays local.** Embeddings and reranking run on-device. Only generation
-   calls out.
-7. **Hybrid search, never vector-only.** Exact identifiers (invoice numbers, client
+   calls out. A cheap cloud CPU is slower than an M2, so hosting is not a fix.
+7. **Bound every model batch.** fastembed defaults to `batch_size=256`, which on CPU
+   buys no throughput and cost 24 GB resident on a 16 GB machine — the process
+   swap-thrashed instead of computing. Throughput is flat from batch 1 to 4.
+8. **Every bad answer becomes an eval case.** Retrieval regressions are silent --
+   the system keeps returning confident passages, just the wrong ones. `go2 evaluate`
+   is the only thing that catches that; a fix without a case will regress unnoticed.
+9. **Hybrid search, never vector-only.** Exact identifiers (invoice numbers, client
    names) are what embeddings are worst at and what people search for. Vector and
    full-text results are fused by Reciprocal Rank Fusion, then reranked.
 
@@ -48,14 +54,28 @@ These are load-bearing. Changing one is a design decision, not a refactor.
 ## Commands
 
 ```bash
-uv run go2 migrate                     # apply SQL migrations
-uv run go2 ingest ~/Documents/work     # index a local folder
-uv run go2 search "your question"      # check retrieval from the terminal
-uv run go2 status                      # what is indexed
-uv run go2 serve                       # MCP server on stdio
-uv run pytest                          # 142 tests
-uv run pytest -m "not slow"            # skip the model-loading ones
+go2 migrate                         # apply SQL migrations
+go2 ingest ~/Documents/work         # index a folder in the foreground
+go2 ingest ~/big-folder --background # queue it instead
+go2 worker                          # drain the queue
+go2 jobs                            # what is queued
+go2 search "your question"          # check retrieval from the terminal
+go2 evaluate                        # run eval/questions.yaml, report rank + MRR
+go2 docs                            # every ingested file
+go2 docs --by-folder                # ...grouped by directory
+go2 status                          # what is indexed, and which model embedded it
+go2 serve                           # MCP server on stdio
+
+uv run pytest                       # full suite
+uv run pytest -m "not slow"         # skip the model-loading ones
 ```
+
+`go2` is installed as a uv tool (`uv tool install --editable .`), so it runs
+from any directory. Configuration is read from `~/.config/go2/.env` first, then
+a project-local `.env` which overrides it — a bare `.env` alone would resolve
+against whatever directory the command was typed in, and silently fall back to
+defaults everywhere else. **The MCP server does not pick up code changes** — restart
+Claude Code after editing anything the tools touch.
 
 The dev database is Homebrew `postgresql@17` on **port 5433** (5432 is an older
 `postgresql@15`). `docker-compose.yml` targets the same port if you prefer Docker.

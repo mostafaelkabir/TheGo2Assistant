@@ -102,11 +102,22 @@ def ingest_document(
         The outcome, including counts for chunks, sheets, and pages needing OCR.
     """
     digest = content_hash(content.data)
+    settings = get_settings()
     previous = repo.get_document_state(conn, scope=scope, external_id=remote.external_id)
 
     # Unchanged content: refresh metadata (a file may have been renamed or
     # moved) but do not re-extract or re-embed.
-    if previous is not None and previous.content_hash == digest and previous.status in _SETTLED:
+    #
+    # The embedding model is part of "unchanged". Without it, switching
+    # providers would skip every file as already-done and leave the old,
+    # now-unsearchable vectors in place -- the switch would appear to succeed
+    # and quietly do nothing.
+    if (
+        previous is not None
+        and previous.content_hash == digest
+        and previous.status in _SETTLED
+        and previous.embedding_model == settings.active_embedding_model
+    ):
         repo.upsert_document(
             conn, scope=scope, remote=remote, content_hash=digest, status=previous.status
         )
@@ -153,7 +164,6 @@ def ingest_document(
         )
         return IngestResult(document_id=document_id, status="failed", reason=reason)
 
-    settings = get_settings()
     chunks = chunk_blocks(
         extracted.blocks,
         max_chars=settings.chunk_chars,

@@ -14,7 +14,10 @@ from sqlalchemy import text
 from typer.testing import CliRunner
 
 from go2.cli import _collect, app
-from go2.storage.db import connect
+from go2.config import Settings
+from go2.jobs.worker import INGEST_FILE, run_worker
+from go2.storage import repository as repo
+from go2.storage.db import connect, default_tenant_id
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -195,3 +198,135 @@ class TestIngestCommand:
 
         result = runner.invoke(app, ["ingest", str(tmp_path)])
         assert "unchanged" in result.stdout
+
+
+@pytest.mark.slow
+class TestQueue:
+    """Background ingestion: enqueue, claim, drain.
+
+    `run_worker` drains every queued job for the tenant, so these tests skip
+    when a real backlog is present rather than consuming someone's queue.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_empty_queue(self) -> None:
+        with connect() as conn:
+            queued = repo.job_counts(conn, tenant_id=default_tenant_id()).get("queued", 0)
+        if queued:
+            pytest.skip(f"{queued} jobs already queued; not draining a real backlog")
+
+    @pytest.fixture
+    def _clean_queue(self, tmp_path: Path) -> Iterator[None]:
+        """Remove only the jobs this test queued.
+
+        Scoped by payload path for the same reason the document cleanup is
+        scoped by tmp_path: a blanket delete would wipe a real queued backlog
+        that someone left running.
+        """
+        yield
+        with connect() as conn:
+            conn.execute(
+                text("DELETE FROM jobs WHERE kind = :k AND payload->>'path' LIKE :prefix"),
+                {"k": INGEST_FILE, "prefix": f"{tmp_path}%"},
+            )
+
+    @pytest.mark.usefixtures("_clean_queue", "_clean_uploads")
+    def test_background_queues_without_ingesting(
+        self, tmp_path: Path, pdf_with_text: bytes
+    ) -> None:
+        (tmp_path / "a.pdf").write_bytes(pdf_with_text)
+        (tmp_path / "b.pdf").write_bytes(pdf_with_text)
+
+        result = runner.invoke(app, ["ingest", str(tmp_path), "--background"])
+
+        assert result.exit_code == 0
+        assert "queued 2 files" in result.stdout
+        with connect() as conn:
+            assert (
+                repo.job_counts(conn, tenant_id=default_tenant_id()).get("queued", 0)
+                >= EXPECTED_NESTED_FILES
+            )
+
+    @pytest.mark.usefixtures("_clean_queue", "_clean_uploads")
+    def test_the_worker_drains_the_queue(self, tmp_path: Path, pdf_with_text: bytes) -> None:
+        (tmp_path / "a.pdf").write_bytes(pdf_with_text)
+        runner.invoke(app, ["ingest", str(tmp_path), "--background"])
+
+        report = run_worker(tenant_id=default_tenant_id(), once=True)
+
+        assert report.processed >= 1
+        assert report.chunks > 0
+        with connect() as conn:
+            assert repo.job_counts(conn, tenant_id=default_tenant_id()).get("queued", 0) == 0
+
+    @pytest.mark.usefixtures("_clean_queue", "_clean_uploads")
+    def test_an_oversized_file_is_skipped_not_embedded(self, tmp_path: Path) -> None:
+        # The whole reason the cap exists: one huge file must not silently
+        # consume the queue for hours.
+        big = tmp_path / "huge.md"
+        big.write_text("# Heading\n" + ("word " * 200_000))
+        runner.invoke(app, ["ingest", str(tmp_path), "--background"])
+
+        report = run_worker(tenant_id=default_tenant_id(), once=True, max_bytes=1000)
+
+        assert report.processed == 1
+        assert report.chunks == 0  # skipped, not embedded
+        assert report.failed == 0  # and not counted as an error
+
+    @pytest.mark.usefixtures("_clean_queue", "_clean_uploads")
+    def test_a_missing_file_fails_that_job_only(self, tmp_path: Path, pdf_with_text: bytes) -> None:
+        good = tmp_path / "a.pdf"
+        good.write_bytes(pdf_with_text)
+        gone = tmp_path / "b.pdf"
+        gone.write_bytes(pdf_with_text)
+        runner.invoke(app, ["ingest", str(tmp_path), "--background"])
+        gone.unlink()  # deleted between queueing and processing
+
+        report = run_worker(tenant_id=default_tenant_id(), once=True)
+
+        assert report.failed == 1
+        assert report.processed == 1  # the other file still went through
+
+    @pytest.mark.usefixtures("_clean_queue")
+    def test_a_claimed_job_is_not_handed_out_twice(self, tmp_path: Path) -> None:
+        # FOR UPDATE SKIP LOCKED is what makes concurrent workers safe.
+        tenant_id = default_tenant_id()
+        with connect() as conn:
+            repo.enqueue_job(
+                conn, tenant_id=tenant_id, kind=INGEST_FILE, payload={"path": str(tmp_path)}
+            )
+        with connect() as conn:
+            first = repo.claim_job(conn, tenant_id=tenant_id, kind=INGEST_FILE)
+        with connect() as conn:
+            second = repo.claim_job(conn, tenant_id=tenant_id, kind=INGEST_FILE)
+
+        assert first is not None
+        assert second is None
+
+    @pytest.mark.usefixtures("_clean_queue")
+    def test_jobs_reports_the_queue(self, tmp_path: Path) -> None:
+        with connect() as conn:
+            repo.enqueue_job(
+                conn,
+                tenant_id=default_tenant_id(),
+                kind=INGEST_FILE,
+                payload={"path": str(tmp_path / "x")},
+            )
+        assert "queued" in runner.invoke(app, ["jobs"]).stdout
+
+
+class TestConfigLocation:
+    """Config must not depend on where the command was typed."""
+
+    def test_a_user_level_env_file_is_read(self) -> None:
+        # `go2` runs from any directory, but a bare ".env" resolves against the
+        # current one. Searching from another folder silently used defaults and
+        # returned nothing, because the configured provider was never read.
+        sources = Settings.model_config["env_file"]
+        assert any("config" in str(p) and "go2" in str(p) for p in sources)
+
+    def test_a_project_env_file_still_wins(self) -> None:
+        # Later entries override earlier ones in pydantic-settings, so a
+        # project-local file must come last.
+        sources = [str(p) for p in Settings.model_config["env_file"]]
+        assert sources[-1] == ".env"

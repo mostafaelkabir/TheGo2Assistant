@@ -147,6 +147,11 @@ _SELECT = """
 def _where(filters: SearchFilters, extra: str = "") -> tuple[str, dict[str, Any]]:
     parts, params = filters.clauses()
     parts.insert(0, "c.tenant_id = :tenant_id")
+    # Vectors from a different embedding model are not comparable to this
+    # query's. Scoping here means switching providers yields "nothing found"
+    # rather than confident nonsense from a mismatched vector space.
+    parts.append("d.embedding_model = :embedding_model")
+    params["embedding_model"] = get_settings().active_embedding_model
     if extra:
         parts.append(extra)
     return " WHERE " + " AND ".join(parts), params

@@ -1,0 +1,37 @@
+# Retrieval checks. Run with `go2 evaluate`.
+#
+# Each case is a question you know the answer to, and the document that should
+# answer it. `expect_document` is matched as a substring of the title, so a
+# partial name is fine. `expect_text` is optional and asserts the retrieved
+# passage actually contains the fact -- use it when returning the right file
+# is not enough, because the answer sits in one specific section of it.
+#
+# Add a case every time you catch a bad answer. That is what stops the same
+# failure coming back after the next chunking or provider change.
+
+- question: How much did the auto-labeling pipeline cost in API spend?
+  expect_document: RESUME_CONTEXT
+  expect_text: "507"
+
+- question: What benchmark protocol made latency claims comparable?
+  expect_document: RESUME_CONTEXT
+  expect_text: median
+
+- question: How do I SSH into a RunPod instance?
+  expect_document: HOW_TO_SSH_RUNPOD
+
+- question: How do I run the auto-label pipeline end to end?
+  expect_document: AUTOLABEL_PIPELINE
+
+- question: What did the small person benchmark find across models?
+  expect_document: SMALL_PERSON
+
+# Corrected after a failing run: FIVE_MODEL_BENCHMARK is the five-model
+# comparison. The original expectation named SMALL_PERSON, and retrieval was
+# right where the eval case was wrong -- which is the normal way these get
+# written, and the reason a failure is worth reading before it is trusted.
+- question: ما هي نتائج مقارنة النماذج الخمسة؟
+  expect_document: FIVE_MODEL
+
+- question: What did the avatars evaluation of small people find?
+  expect_document: SMALL_PERSON

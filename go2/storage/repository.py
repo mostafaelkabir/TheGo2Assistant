@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import text
 
+from go2.config import get_settings
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -42,6 +44,7 @@ class DocumentState:
     document_id: str
     content_hash: str | None
     status: DocStatus
+    embedding_model: str | None
 
 
 def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> DocumentState | None:
@@ -52,7 +55,7 @@ def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> D
     """
     row = conn.execute(
         text("""
-            SELECT id, content_hash, status FROM documents
+            SELECT id, content_hash, status, embedding_model FROM documents
              WHERE tenant_id = :tenant_id AND source = :source AND external_id = :external_id
         """),
         {
@@ -63,7 +66,12 @@ def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> D
     ).one_or_none()
     if row is None:
         return None
-    return DocumentState(document_id=str(row.id), content_hash=row.content_hash, status=row.status)
+    return DocumentState(
+        document_id=str(row.id),
+        content_hash=row.content_hash,
+        status=row.status,
+        embedding_model=row.embedding_model,
+    )
 
 
 def upsert_document(
@@ -93,11 +101,12 @@ def upsert_document(
         text("""
             INSERT INTO documents (
                 tenant_id, connection_id, source, external_id, title, path, mime,
-                web_url, size_bytes, modified_at, content_hash, status
+                web_url, size_bytes, modified_at, content_hash, status, embedding_model
             )
             VALUES (
                 :tenant_id, :connection_id, :source, :external_id, :title, :path, :mime,
-                :web_url, :size_bytes, :modified_at, :content_hash, CAST(:status AS doc_status)
+                :web_url, :size_bytes, :modified_at, :content_hash,
+                CAST(:status AS doc_status), :embedding_model
             )
             ON CONFLICT (tenant_id, source, external_id) DO UPDATE SET
                 title        = EXCLUDED.title,
@@ -108,6 +117,7 @@ def upsert_document(
                 modified_at  = EXCLUDED.modified_at,
                 content_hash = EXCLUDED.content_hash,
                 status       = EXCLUDED.status,
+                embedding_model = EXCLUDED.embedding_model,
                 error        = NULL
             RETURNING id
         """),
@@ -124,6 +134,7 @@ def upsert_document(
             "modified_at": remote.modified_at,
             "content_hash": content_hash,
             "status": status,
+            "embedding_model": get_settings().active_embedding_model,
         },
     ).scalar_one()
     return str(row)
@@ -294,3 +305,98 @@ def count_chunks(conn: Connection, *, tenant_id: str, document_id: str) -> int:
             {"document_id": document_id, "tenant_id": tenant_id},
         ).scalar_one()
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Job:
+    """One unit of queued work."""
+
+    id: int
+    kind: str
+    payload: dict[str, Any]
+    attempts: int
+
+
+def enqueue_job(conn: Connection, *, tenant_id: str, kind: str, payload: dict[str, Any]) -> int:
+    """Add a job to the queue.
+
+    Returns:
+        The new job id.
+    """
+    return int(
+        conn.execute(
+            text("""
+                INSERT INTO jobs (tenant_id, kind, payload)
+                VALUES (:tenant_id, :kind, CAST(:payload AS jsonb))
+                RETURNING id
+            """),
+            {"tenant_id": tenant_id, "kind": kind, "payload": json.dumps(payload)},
+        ).scalar_one()
+    )
+
+
+def claim_job(conn: Connection, *, tenant_id: str, kind: str) -> Job | None:
+    """Take the next runnable job, marking it running.
+
+    ``FOR UPDATE SKIP LOCKED`` is what makes this safe to run from several
+    workers at once: each transaction locks its own row and steps over rows
+    another worker already holds, so no job is handed out twice and no worker
+    blocks waiting for one.
+
+    Returns:
+        The claimed job, or ``None`` when the queue is empty.
+    """
+    row = conn.execute(
+        text("""
+            WITH next AS (
+                SELECT id FROM jobs
+                 WHERE tenant_id = :tenant_id AND kind = :kind
+                   AND status = 'queued' AND run_after <= now()
+                 ORDER BY id
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT 1
+            )
+            UPDATE jobs j
+               SET status = 'running', attempts = j.attempts + 1, updated_at = now()
+              FROM next
+             WHERE j.id = next.id
+            RETURNING j.id, j.kind, j.payload, j.attempts
+        """),
+        {"tenant_id": tenant_id, "kind": kind},
+    ).one_or_none()
+    if row is None:
+        return None
+    payload = row.payload if isinstance(row.payload, dict) else json.loads(row.payload)
+    return Job(id=int(row.id), kind=row.kind, payload=payload, attempts=int(row.attempts))
+
+
+def finish_job(conn: Connection, *, job_id: int, error: str | None = None) -> None:
+    """Mark a job done, or failed with a reason."""
+    conn.execute(
+        text("""
+            UPDATE jobs
+               SET status = CAST(:status AS job_status), last_error = :error, updated_at = now()
+             WHERE id = :job_id
+        """),
+        {"status": "failed" if error else "done", "error": error, "job_id": job_id},
+    )
+
+
+def job_counts(conn: Connection, *, tenant_id: str) -> dict[str, int]:
+    """Return queued/running/done/failed counts for this tenant."""
+    rows = conn.execute(
+        text("SELECT status, count(*) AS n FROM jobs WHERE tenant_id = :t GROUP BY status"),
+        {"t": tenant_id},
+    ).all()
+    return {str(r.status): int(r.n) for r in rows}
+
+
+def clear_finished_jobs(conn: Connection, *, tenant_id: str) -> int:
+    """Delete completed jobs, keeping failures for inspection.
+
+    Returns:
+        How many rows were removed.
+    """
+    return conn.execute(
+        text("DELETE FROM jobs WHERE tenant_id = :t AND status = 'done'"), {"t": tenant_id}
+    ).rowcount

@@ -123,9 +123,14 @@ class TestToolsAgainstRealData:
 
     @pytest.mark.usefixtures("indexed")
     def test_list_documents_finds_it_by_metadata(self) -> None:
-        titles = [d["title"] for d in list_documents(source="upload", limit=50)]
+        # Filtered rather than scanning a top-N listing: this passed only while
+        # the developer's index was nearly empty, and started failing once a
+        # real corpus pushed the fixture document past the limit.
+        titles = [d["title"] for d in list_documents(title_contains="Globex Supply", limit=50)]
         assert "Globex Supply Contract.txt" in titles
 
     @pytest.mark.usefixtures("indexed")
     def test_list_documents_filters_by_status(self) -> None:
-        assert all(d["status"] == "indexed" for d in list_documents(status="indexed", limit=50))
+        docs = list_documents(status="indexed", limit=50)
+        assert docs
+        assert all(d["status"] == "indexed" for d in docs)

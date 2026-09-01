@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Annotated
@@ -11,15 +12,20 @@ from typing import Annotated
 import typer
 from sqlalchemy import text
 
+from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
+from go2.evaluation import EvalFileError, load_cases, run_all, summarise
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
+from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
 from go2.rag.retrieval import SearchFilters, SearchOptions
 from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
 from go2.storage.db import migrate as run_migrations
+from go2.tools.search import list_documents as _list_documents
+from go2.tools.search import unsearchable_count
 
 app = typer.Typer(help="Ask your assistant about your OneDrive and Google Drive files.")
 
@@ -57,6 +63,12 @@ def ingest(
     all_files: Annotated[
         bool, typer.Option("--all", help="Include every file, not just supported formats.")
     ] = False,
+    background: Annotated[
+        bool, typer.Option("--background", help="Queue the work and exit; run `go2 worker`.")
+    ] = False,
+    max_size: Annotated[
+        int, typer.Option(help="Skip files larger than this many bytes.")
+    ] = DEFAULT_MAX_BYTES,
 ) -> None:
     """Ingest local files through the same pipeline the connectors use.
 
@@ -72,9 +84,23 @@ def ingest(
         raise typer.Exit(code=1)
 
     tenant_id = default_tenant_id()
-    tally: Counter[str] = Counter()
 
-    for path in files:
+    if background:
+        queued = enqueue_paths(files, tenant_id=tenant_id, source=UPLOAD_SOURCE, account="local")
+        typer.echo(f"queued {queued} files\nrun `go2 worker` to process them")
+        return
+
+    oversized = [p for p in files if p.stat().st_size > max_size]
+    for path in oversized:
+        typer.echo(f"{'too-large':9} {path.name}  ({path.stat().st_size / 1_000_000:.1f} MB)")
+    files = [p for p in files if p.stat().st_size <= max_size]
+
+    tally: Counter[str] = Counter()
+    tally["too-large"] = len(oversized)
+    total = len(files)
+    started = time.monotonic()
+
+    for index, path in enumerate(files, start=1):
         # Each file gets its own transaction and its own error boundary, so one
         # unreadable or corrupt file cannot abort the rest of the batch.
         try:
@@ -104,11 +130,22 @@ def ingest(
                 content=FetchedContent(data=data, filename=path.name, mime=""),
             )
 
-        typer.echo(f"{result.status:9} {path.name}  ({_describe(result)})")
+        typer.echo(
+            f"[{index:>{len(str(total))}}/{total}] {result.status:9} {path.name}"
+            f"  ({_describe(result)}){_eta(started, index, total)}"
+        )
         tally["unchanged" if result.unchanged else result.status] += 1
 
-    summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()))
-    typer.echo(f"\n{summary}")
+    summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()) if count)
+    typer.echo(f"\n{summary} in {time.monotonic() - started:.0f}s")
+
+
+def _eta(started: float, done: int, total: int) -> str:
+    """A trailing estimate, shown only once there is enough data to mean anything."""
+    if done < 2 or done >= total:  # noqa: PLR2004 -- one sample is not a rate.
+        return ""
+    remaining = (time.monotonic() - started) / done * (total - done)
+    return f"  ~{remaining / 60:.0f}m left" if remaining > 90 else f"  ~{remaining:.0f}s left"  # noqa: PLR2004 -- seconds vs minutes threshold.
 
 
 def _describe(result: IngestResult) -> str:
@@ -149,7 +186,21 @@ def search(
         )
 
     if not hits:
-        typer.echo("no matches")
+        with connect() as conn:
+            stranded = unsearchable_count(conn, tenant_id)
+        if stranded:
+            # The usual cause is running from a directory where the config was
+            # not found, so a different provider is active than the one that
+            # produced these vectors.
+            typer.echo(
+                f"no matches — but {stranded} documents are indexed under a different "
+                f"embedding model.\n"
+                f"active model: {get_settings().active_embedding_model}\n"
+                f"Either re-ingest, or point at the config that was used to index them "
+                f"(~/.config/go2/.env)."
+            )
+        else:
+            typer.echo("no matches")
         return
 
     for rank, hit in enumerate(hits, start=1):
@@ -159,11 +210,160 @@ def search(
 
 
 @app.command()
+def evaluate(
+    path: Annotated[Path, typer.Argument(help="YAML file of eval cases.")] = Path(
+        "eval/questions.yaml"
+    ),
+    *,
+    limit: Annotated[int, typer.Option(help="Hits to consider per question.")] = 5,
+    verbose: Annotated[bool, typer.Option("--verbose", help="Show what came back.")] = False,
+) -> None:
+    """Check retrieval against known question/document pairs.
+
+    Retrieval regressions are silent -- the system keeps returning
+    confident-looking passages, just the wrong ones. Running this after any
+    change to chunking, embedding, or reranking is what turns that into a
+    number you can compare.
+    """
+    try:
+        cases = load_cases(path)
+    except EvalFileError as exc:
+        typer.echo(
+            f"{exc}\n\nCreate one like:\n"
+            "  - question: How much did the pipeline cost?\n"
+            "    expect_document: RESUME_CONTEXT\n"
+            '    expect_text: "507"        # optional'
+        )
+        raise typer.Exit(code=1) from exc
+
+    outcomes = run_all(cases, limit=limit)
+    for outcome in outcomes:
+        mark = "PASS" if outcome.passed else "FAIL"
+        rank = f"@{outcome.rank}" if outcome.rank else "--"
+        typer.echo(f"{mark} {rank:>3}  {outcome.case.question}")
+        if not outcome.passed or verbose:
+            typer.echo(f"          expected: {outcome.case.expect_document}")
+            typer.echo(f"          returned: {', '.join(outcome.returned[:4]) or '(nothing)'}")
+            if outcome.case.expect_text and not outcome.text_found:
+                typer.echo(f"          missing text: {outcome.case.expect_text!r}")
+
+    stats = summarise(outcomes)
+    typer.echo(
+        f"\n{stats['passed']}/{stats['total']} passed"
+        f"  |  {stats['top1']} at rank 1"
+        f"  |  MRR {stats['mrr']:.2f}"
+    )
+    if stats["passed"] < stats["total"]:
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def serve() -> None:
     """Run the MCP server on stdio for Claude Code or Claude Desktop."""
     from go2.mcp_server import main as run_server  # noqa: PLC0415 -- defer the mcp import.
 
     run_server()
+
+
+@app.command()
+def worker(
+    *,
+    once: Annotated[
+        bool, typer.Option("--once", help="Exit when the queue empties instead of polling.")
+    ] = False,
+    max_size: Annotated[
+        int, typer.Option(help="Skip files larger than this many bytes.")
+    ] = DEFAULT_MAX_BYTES,
+) -> None:
+    """Process queued ingestion work.
+
+    Embedding is slow enough on CPU that a large folder is better handed to a
+    worker than watched in a terminal. Safe to run more than one.
+    """
+    tenant_id = default_tenant_id()
+    started = time.monotonic()
+
+    def progress(name: str, chunks: int, remaining: int) -> None:
+        typer.echo(f"{chunks:>4} chunks  {name}   ({remaining} left)")
+
+    typer.echo("worker running — ctrl-c to stop" if not once else "draining queue…")
+    try:
+        report = run_worker(
+            tenant_id=tenant_id, max_bytes=max_size, once=once, on_progress=progress
+        )
+    except KeyboardInterrupt:
+        typer.echo(f"\nstopped after {time.monotonic() - started:.0f}s")
+        return
+
+    typer.echo(
+        f"\n{report.processed} files, {report.chunks} chunks, {report.failed} failed "
+        f"in {report.seconds:.0f}s ({report.rate:.1f} files/min)"
+    )
+
+
+@app.command()
+def jobs(
+    *, clear: Annotated[bool, typer.Option("--clear", help="Delete finished jobs.")] = False
+) -> None:
+    """Show the ingestion queue."""
+    tenant_id = default_tenant_id()
+    with connect() as conn:
+        if clear:
+            removed = repo.clear_finished_jobs(conn, tenant_id=tenant_id)
+            typer.echo(f"removed {removed} finished jobs")
+            return
+        counts = repo.job_counts(conn, tenant_id=tenant_id)
+
+    if not counts:
+        typer.echo("queue is empty")
+        return
+    for state in ("queued", "running", "done", "failed"):
+        if counts.get(state):
+            typer.echo(f"{state:9} {counts[state]:>6}")
+
+
+@app.command()
+def docs(
+    contains: Annotated[str, typer.Option(help="Only titles containing this text.")] = "",
+    source: Annotated[str, typer.Option(help="Only this connector.")] = "",
+    doc_status: Annotated[str, typer.Option("--status", help="Only this status.")] = "",
+    *,
+    by_folder: Annotated[
+        bool, typer.Option("--by-folder", help="Group by directory instead of listing.")
+    ] = False,
+    limit: Annotated[int, typer.Option(help="Maximum rows.")] = 500,
+) -> None:
+    """List the documents that have been ingested.
+
+    This is the file-level view: which files the assistant actually has, where
+    they came from, and how much of each was indexed. A file with 0 chunks is
+    not a failure -- a spreadsheet is kept whole as a sheet rather than being
+    chunked as prose.
+    """
+    rows = _list_documents(
+        source=source or None,
+        title_contains=contains or None,
+        status=doc_status or None,
+        limit=limit,
+    )
+    if not rows:
+        typer.echo("no documents match")
+        return
+
+    if by_folder:
+        grouped: Counter[str] = Counter()
+        chunks: Counter[str] = Counter()
+        for row in rows:
+            grouped[row["path"]] += 1
+            chunks[row["path"]] += int(row["chunks"])
+        for folder, count in grouped.most_common():
+            typer.echo(f"{count:>4} files {chunks[folder]:>6} chunks   {folder}")
+    else:
+        for row in sorted(rows, key=lambda r: str(r["title"]).lower()):
+            typer.echo(f"{row['chunks']:>4} chunks  {row['status']:<8} {row['title']}")
+
+    total = sum(int(r["chunks"]) for r in rows)
+    typer.echo(f"\n{len(rows)} documents, {total} chunks")
 
 
 @app.command()
@@ -190,6 +390,24 @@ def status() -> None:
     for row in rows:
         typer.echo(f"{row.source:10} {row.status:10} {row.documents:>5} documents")
     typer.echo(f"\n{chunks} chunks total")
+
+    active = get_settings().active_embedding_model
+    with connect() as conn:
+        stale = conn.execute(
+            text("""
+                SELECT count(*) FROM documents
+                 WHERE tenant_id = :t AND embedding_model IS DISTINCT FROM :m
+            """),
+            {"t": tenant_id, "m": active},
+        ).scalar_one()
+    typer.echo(f"embeddings: {active}")
+    if stale:
+        # Vectors from another model are unsearchable rather than wrong, but
+        # silently unsearchable is its own kind of wrong.
+        typer.echo(
+            f"\nwarning: {stale} documents were embedded with a different model and "
+            f"cannot be searched.\n         re-ingest them, or switch the provider back."
+        )
 
 
 # Directories that are never documents. Walking them wastes time and, in the
