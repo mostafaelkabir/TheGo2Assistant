@@ -43,6 +43,20 @@ class TestLocationIntegrity:
         assert len(chunks) > 1
         assert {c.page for c in chunks} == {7}
 
+    def test_blocks_under_different_headings_are_never_merged(self) -> None:
+        # A Word document has no page numbers, so the heading is the only
+        # coordinate a citation has. Merging sections files the answer under
+        # the wrong one -- caught in real search output, where a remote-work
+        # answer was cited as "Expense Policy".
+        blocks = [
+            Block(text="Receipts above 50 USD.", heading="Expenses"),
+            Block(text="Engineers may work remotely.", heading="Remote Work"),
+        ]
+        chunks = chunk_blocks(blocks)
+        assert [c.heading for c in chunks] == ["Expenses", "Remote Work"]
+        remote = next(c for c in chunks if "remotely" in c.text)
+        assert remote.heading == "Remote Work"
+
     def test_heading_propagates_to_every_chunk_of_a_group(self) -> None:
         blocks = [
             Block(text="a " * 100, heading="Payment Terms"),

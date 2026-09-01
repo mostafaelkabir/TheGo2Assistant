@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 DocStatus = Literal["pending", "extracting", "indexed", "failed", "skipped"]
 
 
-def _vector_literal(values: Sequence[float]) -> str:
+def vector_literal(values: Sequence[float]) -> str:
     """Render a vector for pgvector.
 
     Passing the literal form avoids registering a psycopg type adapter on every
@@ -196,7 +196,7 @@ def replace_chunks(
                 "document_id": document_id,
                 "ordinal": chunk.ordinal,
                 "text": chunk.text,
-                "embedding": _vector_literal(vector),
+                "embedding": vector_literal(vector),
                 "page": chunk.page,
                 "slide": chunk.slide,
                 "heading": chunk.heading,

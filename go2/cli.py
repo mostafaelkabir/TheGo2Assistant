@@ -14,6 +14,8 @@ from sqlalchemy import text
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
+from go2.rag.retrieval import SearchFilters, SearchOptions
+from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
@@ -115,6 +117,47 @@ def _describe(result: IngestResult) -> str:
     if result.ocr_pages:
         detail += f", {result.ocr_pages} pages awaiting OCR"
     return detail
+
+
+@app.command()
+def search(
+    query: Annotated[str, typer.Argument(help="A natural-language question.")],
+    *,
+    limit: int = typer.Option(default=5, help="How many passages to show."),
+    source: str = typer.Option(default="", help="Restrict to one connector."),
+    no_rerank: bool = typer.Option(default=False, help="Skip the cross-encoder."),
+) -> None:
+    """Search indexed documents from the terminal.
+
+    The same retrieval the MCP server exposes, for checking quality without a
+    client attached.
+    """
+    tenant_id = default_tenant_id()
+    with connect() as conn:
+        hits = run_search(
+            conn,
+            tenant_id=tenant_id,
+            query=query,
+            filters=SearchFilters(source=source or None),
+            options=SearchOptions(limit=limit, rerank=not no_rerank),
+        )
+
+    if not hits:
+        typer.echo("no matches")
+        return
+
+    for rank, hit in enumerate(hits, start=1):
+        snippet = " ".join(hit.text.split())[:220]
+        typer.echo(f"\n{rank}. {hit.citation()}   [{hit.score:.3f}]")
+        typer.echo(f"   {snippet}...")
+
+
+@app.command()
+def serve() -> None:
+    """Run the MCP server on stdio for Claude Code or Claude Desktop."""
+    from go2.mcp_server import main as run_server  # noqa: PLC0415 -- defer the mcp import.
+
+    run_server()
 
 
 @app.command()

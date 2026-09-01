@@ -25,7 +25,7 @@ from go2.rag.embedding import embed_query
 from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id, get_engine
-from go2.storage.repository import _vector_literal
+from go2.storage.repository import vector_literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -157,7 +157,7 @@ class TestHappyPath:
         # not a string that merely inserted without error.
 
         result = _ingest(conn, tenant_id, connection_id, pdf_with_text, "Acme Contract.pdf")
-        query = _vector_literal(embed_query("What is the renewal fee?"))
+        query = vector_literal(embed_query("What is the renewal fee?"))
         distance = conn.execute(
             text("""
                 SELECT embedding <=> CAST(:q AS vector) AS distance

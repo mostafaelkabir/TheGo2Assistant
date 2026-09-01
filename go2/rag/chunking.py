@@ -12,7 +12,10 @@ safe.
 
 Blocks from **different locations are never merged**. A chunk spanning pages 3
 and 4 can only be cited as one of them, and a citation that points a reader at
-the wrong page is worse than a slightly smaller chunk.
+the wrong page is worse than a slightly smaller chunk. The heading is part of
+that location: a Word document has no page numbers, so its section heading is
+the only thing a citation can name, and merging across headings would file an
+answer under the wrong section.
 """
 
 from __future__ import annotations
@@ -82,8 +85,13 @@ def _split_oversized(text: str, limit: int) -> list[str]:
     return [text[i : i + limit] for i in range(0, len(text), limit)]
 
 
-def _location(block: Block) -> tuple[int | None, int | None]:
-    return (block.page, block.slide)
+def _location(block: Block) -> tuple[int | None, int | None, str | None]:
+    """The citable position of a block.
+
+    The heading belongs here because in a document with no pages or slides it
+    is the only coordinate a citation has.
+    """
+    return (block.page, block.slide, block.heading)
 
 
 def _overlap_tail(text: str, overlap: int) -> str:
@@ -97,7 +105,7 @@ def _overlap_tail(text: str, overlap: int) -> str:
 
 def _group_by_location(blocks: Iterable[Block]) -> list[list[Block]]:
     groups: list[list[Block]] = []
-    previous: tuple[int | None, int | None] | None = None
+    previous: tuple[int | None, int | None, str | None] | None = None
     for block in blocks:
         location = _location(block)
         if previous is None or location != previous:
@@ -136,9 +144,7 @@ def chunk_blocks(
     ordinal = 0
 
     for group in _group_by_location(blocks):
-        page, slide = _location(group[0])
-        # The heading of the first block that has one describes the group.
-        heading = next((b.heading for b in group if b.heading), None)
+        page, slide, heading = _location(group[0])
 
         buffer = ""
         for block in group:

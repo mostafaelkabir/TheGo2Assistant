@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     embedding_model: str = "electroglyph/Qwen3-Embedding-0.6B-onnx-uint8"
     embedding_dim: int = 1024
 
+    # Qwen3-Reranker is a causal LM scoring yes/no logits, not a cross-encoder,
+    # so fastembed cannot serve it. This is the multilingual cross-encoder it
+    # does support, and it handles Arabic queries against English passages.
+    reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
+    # How many fused candidates the cross-encoder scores. Reranking is the
+    # slow half of a search, so this bounds latency.
+    rerank_candidates: int = Field(default=40, ge=1, le=200)
+
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")
 
