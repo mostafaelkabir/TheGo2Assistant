@@ -54,13 +54,19 @@ def ingest(
     paths: Annotated[list[Path], typer.Argument(help="Files or directories to ingest.")],
     *,
     recursive: bool = typer.Option(default=True, help="Descend into directories."),
+    all_files: Annotated[
+        bool, typer.Option("--all", help="Include every file, not just supported formats.")
+    ] = False,
 ) -> None:
     """Ingest local files through the same pipeline the connectors use.
 
     This is the upload path. It shares extraction, chunking, and embedding with
     Google Drive and OneDrive -- there is no separate ingestion route.
+
+    Scanning a directory keeps only readable formats and skips hidden entries
+    and build directories. Run `go2 formats` to see what is supported.
     """
-    files = _collect(paths, recursive=recursive)
+    files = _collect(paths, recursive=recursive, all_files=all_files)
     if not files:
         typer.echo("nothing to ingest")
         raise typer.Exit(code=1)
@@ -186,13 +192,67 @@ def status() -> None:
     typer.echo(f"\n{chunks} chunks total")
 
 
-def _collect(paths: list[Path], *, recursive: bool) -> list[Path]:
-    """Expand the given paths into a sorted list of ingestable files."""
+# Directories that are never documents. Walking them wastes time and, in the
+# case of .git, produces thousands of unreadable blobs.
+SKIP_DIRS = frozenset(
+    {
+        "node_modules",
+        "__pycache__",
+        "venv",
+        "env",
+        "dist",
+        "build",
+        "target",
+        "site-packages",
+        "vendor",
+        "coverage",
+        "htmlcov",
+        "logs",
+    }
+)
+
+
+def _is_ignored(path: Path, root: Path) -> bool:
+    """Whether a path lies inside a directory we never index.
+
+    Hidden entries are excluded outright. Beyond being noise, a dotfile is
+    where secrets live -- indexing a project folder must not sweep up a .env.
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = path.parts
+    return any(part.startswith(".") or part in SKIP_DIRS for part in parts)
+
+
+def _collect(paths: list[Path], *, recursive: bool, all_files: bool = False) -> list[Path]:
+    """Expand the given paths into a sorted list of ingestable files.
+
+    Directories are filtered to formats the pipeline can actually read. Without
+    that, pointing at a source tree creates hundreds of document rows purely to
+    mark them skipped. A file named explicitly is always kept, so an unusual
+    extension can still be forced through.
+
+    Args:
+        paths: Files or directories from the command line.
+        recursive: Whether to descend into subdirectories.
+        all_files: Keep every file, not just supported formats.
+
+    Returns:
+        Sorted, de-duplicated paths.
+    """
+    supported = supported_extensions()
     found: list[Path] = []
     for path in paths:
         if path.is_dir():
             pattern = "**/*" if recursive else "*"
-            found.extend(p for p in path.glob(pattern) if p.is_file())
+            found.extend(
+                p
+                for p in path.glob(pattern)
+                if p.is_file()
+                and not _is_ignored(p, path)
+                and (all_files or p.suffix.lower() in supported)
+            )
         elif path.is_file():
             found.append(path)
         else:

@@ -56,6 +56,48 @@ class TestCollect:
         # Passing a file and its parent directory must not ingest it twice.
         assert _collect([target, tmp_path], recursive=True) == [target]
 
+    def test_unsupported_formats_are_not_collected_from_a_directory(self, tmp_path: Path) -> None:
+        # Scanning a source tree must not create a document row per .py file
+        # just to mark it skipped.
+        (tmp_path / "notes.md").write_text("keep")
+        (tmp_path / "main.py").write_text("drop")
+        (tmp_path / "run.log").write_text("drop")
+        assert [p.name for p in _collect([tmp_path], recursive=True)] == ["notes.md"]
+
+    def test_all_files_overrides_the_format_filter(self, tmp_path: Path) -> None:
+        (tmp_path / "notes.md").write_text("keep")
+        (tmp_path / "main.py").write_text("keep too")
+        found = _collect([tmp_path], recursive=True, all_files=True)
+        assert {p.name for p in found} == {"notes.md", "main.py"}
+
+    def test_a_file_named_explicitly_is_always_kept(self, tmp_path: Path) -> None:
+        # Naming a file is an explicit instruction; only directory scans filter.
+        odd = tmp_path / "data.weird"
+        odd.write_text("x")
+        assert _collect([odd], recursive=True) == [odd]
+
+    def test_hidden_files_are_never_collected(self, tmp_path: Path) -> None:
+        # A dotfile is where secrets live. Indexing a project folder must not
+        # sweep up a .env, and pathlib's glob includes dotfiles by default.
+        (tmp_path / ".env").write_text("SECRET=value")
+        (tmp_path / "notes.md").write_text("keep")
+        assert [p.name for p in _collect([tmp_path], recursive=True)] == ["notes.md"]
+
+    def test_hidden_directories_are_not_walked(self, tmp_path: Path) -> None:
+        git = tmp_path / ".git"
+        git.mkdir()
+        (git / "COMMIT_EDITMSG.md").write_text("drop")
+        (tmp_path / "notes.md").write_text("keep")
+        assert [p.name for p in _collect([tmp_path], recursive=True)] == ["notes.md"]
+
+    @pytest.mark.parametrize("junk", ["node_modules", "__pycache__", "venv", "dist"])
+    def test_build_directories_are_skipped(self, tmp_path: Path, junk: str) -> None:
+        noisy = tmp_path / junk
+        noisy.mkdir()
+        (noisy / "README.md").write_text("drop")
+        (tmp_path / "notes.md").write_text("keep")
+        assert [p.name for p in _collect([tmp_path], recursive=True)] == ["notes.md"]
+
     def test_a_missing_path_is_reported_not_fatal(self, tmp_path: Path) -> None:
         real = tmp_path / "a.txt"
         real.write_text("a")
@@ -106,9 +148,22 @@ class TestIngestCommand:
         result = runner.invoke(app, ["ingest", str(tmp_path)])
 
         assert result.exit_code == 0
-        assert "indexed" in result.stdout
-        assert "skipped" in result.stdout
+        assert "Contract.pdf" in result.stdout
+        assert "Budget.xlsx" in result.stdout
+        # The .zip is filtered at collection, so it never becomes a document
+        # row. Scanning a directory should not record what it cannot read.
+        assert "archive.zip" not in result.stdout
         assert "2 indexed" in result.stdout
+
+    def test_all_surfaces_unreadable_files_as_skipped(
+        self, tmp_path: Path, pdf_with_text: bytes
+    ) -> None:
+        (tmp_path / "Contract.pdf").write_bytes(pdf_with_text)
+        (tmp_path / "archive.zip").write_bytes(b"PK\x03\x04junk")
+
+        result = runner.invoke(app, ["ingest", str(tmp_path), "--all"])
+
+        assert "archive.zip" in result.stdout
         assert "1 skipped" in result.stdout
 
     def test_a_corrupt_file_does_not_abort_the_batch(

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import PurePosixPath
 
 from go2.extraction.base import Block, Extracted, UnsupportedFormatError
+from go2.extraction.markdown import extract_markdown
 from go2.extraction.office import extract_docx, extract_pptx
 from go2.extraction.pdf import extract_pdf
 from go2.extraction.spreadsheet import extract_csv, extract_xlsx
@@ -34,8 +35,8 @@ _BY_EXTENSION: dict[str, Extractor] = {
     ".csv": extract_csv,
     ".tsv": extract_csv,
     ".txt": _extract_text,
-    ".md": _extract_text,
-    ".markdown": _extract_text,
+    ".md": extract_markdown,
+    ".markdown": extract_markdown,
 }
 
 _BY_MIME: dict[str, Extractor] = {
@@ -45,7 +46,7 @@ _BY_MIME: dict[str, Extractor] = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": extract_xlsx,
     "text/csv": extract_csv,
     "text/plain": _extract_text,
-    "text/markdown": _extract_text,
+    "text/markdown": extract_markdown,
 }
 
 
