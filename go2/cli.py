@@ -21,6 +21,8 @@ from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
 from go2.rag.retrieval import SearchFilters, SearchOptions
 from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
+from go2.security.pii import redact as redact_pii
+from go2.security.scan import scan_files
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
 from go2.storage.db import migrate as run_migrations
@@ -207,6 +209,47 @@ def search(
         snippet = " ".join(hit.text.split())[:220]
         typer.echo(f"\n{rank}. {hit.citation()}   [{hit.score:.3f}]")
         typer.echo(f"   {snippet}...")
+
+
+@app.command()
+def scan(
+    paths: Annotated[list[Path], typer.Argument(help="Files or directories to scan.")],
+    *,
+    show: Annotated[
+        bool, typer.Option("--show", help="Print a redacted excerpt around each finding.")
+    ] = False,
+) -> None:
+    """Report sensitive values in files, without ingesting anything.
+
+    Run this before pointing a connector at a new source. It reads locally and
+    sends nothing anywhere, so it is safe on material you have not decided to
+    index yet.
+    """
+    files = _collect(paths, recursive=True)
+    if not files:
+        typer.echo("nothing to scan")
+        raise typer.Exit(code=1)
+
+    report = scan_files(files)
+
+    for entry in report.files:
+        detail = ", ".join(f"{n} {k}" for k, n in sorted(entry.counts.items()))
+        typer.echo(f"{entry.path.name}  ({detail})")
+        if show:
+            for finding in entry.findings[:3]:
+                excerpt = entry.body[max(0, finding.start - 40) : finding.end + 20]
+                masked, _ = redact_pii(" ".join(excerpt.split()))
+                typer.echo(f"    …{masked}…")
+
+    settings = get_settings()
+    typer.echo(f"\n{len(report.files)} of {report.scanned} files contain sensitive values")
+    for kind, number in sorted(report.totals.items(), key=lambda kv: -kv[1]):
+        typer.echo(f"  {number:>5}  {kind}")
+    if report.unreadable:
+        typer.echo(f"  {report.unreadable} files could not be read and were not scanned")
+    typer.echo(f"\npolicy: {settings.pii_policy}  |  provider: {settings.embedding_provider}")
+    if settings.embedding_provider == "local":
+        typer.echo("nothing leaves this machine under the local provider.")
 
 
 @app.command()

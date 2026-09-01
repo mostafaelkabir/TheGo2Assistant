@@ -318,15 +318,19 @@ class TestQueue:
 class TestConfigLocation:
     """Config must not depend on where the command was typed."""
 
+    @staticmethod
+    def _env_sources() -> list[str]:
+        sources = Settings.model_config["env_file"]
+        assert isinstance(sources, tuple)
+        return [str(p) for p in sources]
+
     def test_a_user_level_env_file_is_read(self) -> None:
         # `go2` runs from any directory, but a bare ".env" resolves against the
         # current one. Searching from another folder silently used defaults and
         # returned nothing, because the configured provider was never read.
-        sources = Settings.model_config["env_file"]
-        assert any("config" in str(p) and "go2" in str(p) for p in sources)
+        assert any("config" in p and "go2" in p for p in self._env_sources())
 
     def test_a_project_env_file_still_wins(self) -> None:
         # Later entries override earlier ones in pydantic-settings, so a
         # project-local file must come last.
-        sources = [str(p) for p in Settings.model_config["env_file"]]
-        assert sources[-1] == ".env"
+        assert self._env_sources()[-1] == ".env"

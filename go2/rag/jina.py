@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from go2.config import get_settings
+from go2.security.guard import screen
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -190,6 +191,15 @@ def embed(
     if not texts:
         return []
 
+    # Everything crossing to a third party is screened first. Embedding a
+    # redacted chunk means the vector no longer encodes the masked value --
+    # deliberate, and the original text stays in the local database, so
+    # full-text search still finds it and citations still show it.
+    screened = screen(texts)
+    if screened.redacted_any:
+        logger.info("redacted before sending: %s", screened.counts)
+    texts = screened.texts
+
     settings = get_settings()
     vectors: list[list[float]] = []
 
@@ -235,6 +245,9 @@ def rerank(
     """
     if not passages:
         return []
+
+    screened = screen([query, *passages])
+    query, passages = screened.texts[0], screened.texts[1:]
 
     body = _post(
         RERANK_URL,

@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local", "jina"] = "local"
     rerank_provider: Literal["local", "jina"] = "local"
 
+    # What happens to sensitive values before text leaves the machine.
+    #   redact — mask them, send the rest (default)
+    #   block  — refuse to send content containing PII to an external provider
+    #   allow  — send as-is, an explicit opt-out
+    # Only meaningful when a provider is not "local"; nothing leaves under local.
+    pii_policy: Literal["redact", "block", "allow"] = "redact"
+    # Redaction also applied to passages returned through the MCP tools. Off by
+    # default: those answer a question you asked about your own documents, and
+    # masking your own address out of your own contract helps nobody. Turn it on
+    # when the assistant is answering for someone other than the data's owner.
+    pii_redact_tool_output: bool = False
+
     jina_api_key: SecretStr = SecretStr("")
     jina_embedding_model: str = "jina-embeddings-v5-text-small"  # 1024 dims, matches the column
     jina_rerank_model: str = "jina-reranker-v3.5"
