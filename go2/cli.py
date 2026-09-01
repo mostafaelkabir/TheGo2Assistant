@@ -24,6 +24,7 @@ from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
 from go2.storage.db import migrate as run_migrations
+from go2.tools.search import list_documents as _list_documents
 
 app = typer.Typer(help="Ask your assistant about your OneDrive and Google Drive files.")
 
@@ -304,6 +305,50 @@ def jobs(
     for state in ("queued", "running", "done", "failed"):
         if counts.get(state):
             typer.echo(f"{state:9} {counts[state]:>6}")
+
+
+@app.command()
+def docs(
+    contains: Annotated[str, typer.Option(help="Only titles containing this text.")] = "",
+    source: Annotated[str, typer.Option(help="Only this connector.")] = "",
+    doc_status: Annotated[str, typer.Option("--status", help="Only this status.")] = "",
+    *,
+    by_folder: Annotated[
+        bool, typer.Option("--by-folder", help="Group by directory instead of listing.")
+    ] = False,
+    limit: Annotated[int, typer.Option(help="Maximum rows.")] = 500,
+) -> None:
+    """List the documents that have been ingested.
+
+    This is the file-level view: which files the assistant actually has, where
+    they came from, and how much of each was indexed. A file with 0 chunks is
+    not a failure -- a spreadsheet is kept whole as a sheet rather than being
+    chunked as prose.
+    """
+    rows = _list_documents(
+        source=source or None,
+        title_contains=contains or None,
+        status=doc_status or None,
+        limit=limit,
+    )
+    if not rows:
+        typer.echo("no documents match")
+        return
+
+    if by_folder:
+        grouped: Counter[str] = Counter()
+        chunks: Counter[str] = Counter()
+        for row in rows:
+            grouped[row["path"]] += 1
+            chunks[row["path"]] += int(row["chunks"])
+        for folder, count in grouped.most_common():
+            typer.echo(f"{count:>4} files {chunks[folder]:>6} chunks   {folder}")
+    else:
+        for row in sorted(rows, key=lambda r: str(r["title"]).lower()):
+            typer.echo(f"{row['chunks']:>4} chunks  {row['status']:<8} {row['title']}")
+
+    total = sum(int(r["chunks"]) for r in rows)
+    typer.echo(f"\n{len(rows)} documents, {total} chunks")
 
 
 @app.command()

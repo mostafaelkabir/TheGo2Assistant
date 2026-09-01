@@ -61,6 +61,8 @@ go2 worker                          # drain the queue
 go2 jobs                            # what is queued
 go2 search "your question"          # check retrieval from the terminal
 go2 evaluate                        # run eval/questions.yaml, report rank + MRR
+go2 docs                            # every ingested file
+go2 docs --by-folder                # ...grouped by directory
 go2 status                          # what is indexed, and which model embedded it
 go2 serve                           # MCP server on stdio
 
