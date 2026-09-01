@@ -94,6 +94,8 @@ _PHONE = re.compile(
     r"\+\d{1,3}[ -]?(?:\(?\d{1,4}\)?[ -]?){1,4}\d{2,4}"  # +44 20 7946 0958
     r"|\(\d{2,4}\)[ -]?\d{3,4}[ -]?\d{3,4}"  # (020) 7946 0958
     r"|\d{3,4}-\d{3,4}-\d{3,4}"  # 020-7946-0958
+    r"|00\d{8,14}"  # 00218911234567, international access code
+    r"|09\d{8}"  # Libyan mobile in national form
     r")(?![\w.])"
 )
 # E.164 allows at most 15 digits; ITU reserves 7 as a practical minimum for a
@@ -127,13 +129,26 @@ _NATIONAL_ID = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 
 _MIN_CARD_DIGITS = 13
 _MAX_CARD_DIGITS = 19
+# ISO/IEC 7812 assigns the first digit as the Major Industry Identifier, and
+# every payment scheme sits in 3-6 (Amex/Diners, Visa, Mastercard, Discover).
+# Nothing is issued under 0, 1, 2, 7, 8 or 9.
+#
+# This is not pedantry. A Libyan mobile written with the international access
+# code -- 00218... -- is fourteen digits and passes Luhn about one time in ten.
+# Without this check a job advert gets reported as containing a credit card,
+# which is both wrong and alarming.
+_CARD_LEADING = frozenset("3456")
 
 
 def _card_findings(text: str) -> list[Finding]:
     found: list[Finding] = []
     for match in _CARD.finditer(text):
         digits = re.sub(r"[ -]", "", match.group())
-        if _MIN_CARD_DIGITS <= len(digits) <= _MAX_CARD_DIGITS and _luhn(digits):
+        if (
+            _MIN_CARD_DIGITS <= len(digits) <= _MAX_CARD_DIGITS
+            and digits[0] in _CARD_LEADING
+            and _luhn(digits)
+        ):
             found.append(Finding(PiiKind.CREDIT_CARD, match.start(), match.end(), match.group()))
     return found
 

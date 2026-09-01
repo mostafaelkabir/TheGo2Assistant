@@ -154,3 +154,33 @@ class TestEgressGuard:
         result = screen(["the renewal fee is 4,500 EUR"])
         assert result.texts == ["the renewal fee is 4,500 EUR"]
         assert not result.redacted_any
+
+
+class TestCardVersusPhone:
+    """A long number that passes Luhn is not automatically a card."""
+
+    @pytest.mark.parametrize(
+        ("number", "scheme"),
+        [
+            ("4111111111111111", "visa"),
+            ("5555555555554444", "mastercard"),
+            ("378282246310005", "amex"),
+            ("6011111111111117", "discover"),
+        ],
+    )
+    def test_real_card_schemes_are_still_detected(self, number: str, scheme: str) -> None:
+        assert summarise(detect(f"card {number}")) == {"credit_card": 1}, scheme
+
+    def test_an_international_number_is_a_phone_not_a_card(self) -> None:
+        # Found in a real job advert: a Libyan WhatsApp number written with the
+        # 00 access code is 14 digits and passes Luhn roughly one time in ten.
+        # ISO 7812 assigns no card scheme to a leading 0, so the leading digit
+        # settles it. Reporting a job post as containing a credit card is both
+        # wrong and alarming.
+        assert summarise(detect("واتساب 00218911234567")) == {"phone": 1}
+
+    def test_a_national_mobile_is_a_phone(self) -> None:
+        assert summarise(detect("Call 0912345678 today")) == {"phone": 1}
+
+    def test_a_bare_ten_digit_identifier_is_neither(self) -> None:
+        assert detect("record 1234567890 in the table") == []
