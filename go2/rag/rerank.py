@@ -64,6 +64,11 @@ def rerank(query: str, passages: Sequence[str]) -> list[float]:
 def rerank_order(query: str, passages: Sequence[str], *, limit: int) -> list[tuple[int, float]]:
     """Rank passages and return the best ones.
 
+    Passages are truncated before scoring. Cross-encoder cost is linear in
+    passage length -- measured at roughly 0.2 ms per character -- and a
+    relevance judgement rarely needs more than the opening of a passage. The
+    truncation affects only the ordering; callers still hold the full text.
+
     Args:
         query: The user's question.
         passages: Candidate passage texts.
@@ -72,6 +77,7 @@ def rerank_order(query: str, passages: Sequence[str], *, limit: int) -> list[tup
     Returns:
         ``(original_index, score)`` pairs, best first, at most ``limit`` long.
     """
-    scores = rerank(query, passages)
+    budget = get_settings().rerank_max_chars
+    scores = rerank(query, [p[:budget] for p in passages])
     ranked = sorted(enumerate(scores), key=lambda pair: pair[1], reverse=True)
     return ranked[:limit]

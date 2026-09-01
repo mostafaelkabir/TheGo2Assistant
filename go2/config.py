@@ -43,9 +43,16 @@ class Settings(BaseSettings):
     # so fastembed cannot serve it. This is the multilingual cross-encoder it
     # does support, and it handles Arabic queries against English passages.
     reranker_model: str = "jinaai/jina-reranker-v2-base-multilingual"
-    # How many fused candidates the cross-encoder scores. Reranking is the
-    # slow half of a search, so this bounds latency.
-    rerank_candidates: int = Field(default=40, ge=1, le=200)
+    # How many fused candidates the cross-encoder scores. Reranking dominates
+    # search latency, and cost is linear in candidates x characters, so these
+    # two settings are the whole latency budget. Recall is already handled by
+    # fusing two retrievers; the reranker only has to order what they found.
+    rerank_candidates: int = Field(default=15, ge=1, le=200)
+    # Characters of each passage shown to the cross-encoder. Measured cost is
+    # ~0.2 ms/char/passage, so this is the single biggest latency lever.
+    # Truncation applies only to the relevance judgement -- the full text is
+    # still what gets returned and read.
+    rerank_max_chars: int = Field(default=512, ge=64, le=8000)
 
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")
