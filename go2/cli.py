@@ -12,6 +12,7 @@ from typing import Annotated
 import typer
 from sqlalchemy import text
 
+from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
@@ -280,6 +281,24 @@ def status() -> None:
     for row in rows:
         typer.echo(f"{row.source:10} {row.status:10} {row.documents:>5} documents")
     typer.echo(f"\n{chunks} chunks total")
+
+    active = get_settings().active_embedding_model
+    with connect() as conn:
+        stale = conn.execute(
+            text("""
+                SELECT count(*) FROM documents
+                 WHERE tenant_id = :t AND embedding_model IS DISTINCT FROM :m
+            """),
+            {"t": tenant_id, "m": active},
+        ).scalar_one()
+    typer.echo(f"embeddings: {active}")
+    if stale:
+        # Vectors from another model are unsearchable rather than wrong, but
+        # silently unsearchable is its own kind of wrong.
+        typer.echo(
+            f"\nwarning: {stale} documents were embedded with a different model and "
+            f"cannot be searched.\n         re-ingest them, or switch the provider back."
+        )
 
 
 # Directories that are never documents. Walking them wastes time and, in the

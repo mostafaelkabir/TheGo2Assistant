@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import text
 
+from go2.config import get_settings
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -93,11 +95,12 @@ def upsert_document(
         text("""
             INSERT INTO documents (
                 tenant_id, connection_id, source, external_id, title, path, mime,
-                web_url, size_bytes, modified_at, content_hash, status
+                web_url, size_bytes, modified_at, content_hash, status, embedding_model
             )
             VALUES (
                 :tenant_id, :connection_id, :source, :external_id, :title, :path, :mime,
-                :web_url, :size_bytes, :modified_at, :content_hash, CAST(:status AS doc_status)
+                :web_url, :size_bytes, :modified_at, :content_hash,
+                CAST(:status AS doc_status), :embedding_model
             )
             ON CONFLICT (tenant_id, source, external_id) DO UPDATE SET
                 title        = EXCLUDED.title,
@@ -108,6 +111,7 @@ def upsert_document(
                 modified_at  = EXCLUDED.modified_at,
                 content_hash = EXCLUDED.content_hash,
                 status       = EXCLUDED.status,
+                embedding_model = EXCLUDED.embedding_model,
                 error        = NULL
             RETURNING id
         """),
@@ -124,6 +128,7 @@ def upsert_document(
             "modified_at": remote.modified_at,
             "content_hash": content_hash,
             "status": status,
+            "embedding_model": get_settings().active_embedding_model,
         },
     ).scalar_one()
     return str(row)

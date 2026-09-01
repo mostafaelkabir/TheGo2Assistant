@@ -78,6 +78,7 @@ def get_model() -> TextEmbedding:
             _model = TextEmbedding(
                 model_name=settings.embedding_model,
                 cache_dir=str(settings.model_cache_dir),
+                threads=settings.inference_threads,
             )
         return _model
 
@@ -106,9 +107,18 @@ def embed_documents(texts: Sequence[str]) -> list[list[float]]:
     """
     if not texts:
         return []
+
+    settings = get_settings()
+    if settings.embedding_provider == "jina":
+        from go2.rag import jina  # noqa: PLC0415 -- optional path; keep httpx off the local import.
+
+        return jina.embed(texts, task="retrieval.passage")
+
     # The batch size is bounded deliberately -- see Settings.embedding_batch_size.
-    batch = get_settings().embedding_batch_size
-    return [_normalise(v.tolist()) for v in get_model().embed(list(texts), batch_size=batch)]
+    return [
+        _normalise(v.tolist())
+        for v in get_model().embed(list(texts), batch_size=settings.embedding_batch_size)
+    ]
 
 
 def embed_query(text: str) -> list[float]:
@@ -123,5 +133,11 @@ def embed_query(text: str) -> list[float]:
     Returns:
         A single unit-length vector.
     """
+    settings = get_settings()
+    if settings.embedding_provider == "jina":
+        from go2.rag import jina  # noqa: PLC0415 -- optional path; keep httpx off the local import.
+
+        return jina.embed([text], task="retrieval.query")[0]
+
     vectors = list(get_model().embed([f"{QUERY_INSTRUCTION}{text}"]))
     return _normalise(vectors[0].tolist())

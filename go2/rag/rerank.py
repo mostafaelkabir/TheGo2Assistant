@@ -46,6 +46,7 @@ def get_reranker() -> TextCrossEncoder:
             _model = TextCrossEncoder(
                 model_name=settings.reranker_model,
                 cache_dir=str(settings.model_cache_dir),
+                threads=settings.inference_threads,
             )
         return _model
 
@@ -139,7 +140,14 @@ def rerank_order(query: str, passages: Sequence[str], *, limit: int) -> list[tup
     Returns:
         ``(original_index, score)`` pairs, best first, at most ``limit`` long.
     """
-    budget = get_settings().rerank_max_chars
-    scores = rerank(query, [select_window(p, query, budget) for p in passages])
+    settings = get_settings()
+    windows = [select_window(p, query, settings.rerank_max_chars) for p in passages]
+
+    if settings.rerank_provider == "jina":
+        from go2.rag import jina  # noqa: PLC0415 -- optional path; keep httpx off the local import.
+
+        return jina.rerank(query, windows, limit=limit)
+
+    scores = rerank(query, windows)
     ranked = sorted(enumerate(scores), key=lambda pair: pair[1], reverse=True)
     return ranked[:limit]
