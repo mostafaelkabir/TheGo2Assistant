@@ -37,7 +37,12 @@ mcpServers:
     # point of this system.
     serverInstructions: true
 
-  atmata:
+  # Named for the tenant it actually serves, not the project you might hope it
+  # serves. `local` still holds HaramBlur, Atmata and a few test documents
+  # together; calling this entry `atmata` would promise an isolation that does
+  # not exist yet, and the label is the only thing a person sees when choosing
+  # a workspace in the UI. Rename it once `local` is split.
+  local:
     type: streamable-http
     url: http://host.docker.internal:8766/mcp
     timeout: 120000

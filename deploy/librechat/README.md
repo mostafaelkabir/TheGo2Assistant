@@ -23,6 +23,38 @@ GO2_TENANT=dawan go2 serve --http --port 8765 --allow-host host.docker.internal:
 GO2_TENANT=local go2 serve --http --port 8766 --allow-host host.docker.internal:8766
 ```
 
+Each entry in `librechat.yaml` is named for the tenant it serves. The second is
+`local`, not `atmata`, because `local` still holds HaramBlur, Atmata and some
+test documents in one workspace -- and that name is the only thing a person
+sees when picking a workspace in the UI. Naming it `atmata` would promise an
+isolation that does not exist. Rename it when `local` is split.
+
+The server refuses to start if `GO2_TENANT` names a tenant that does not
+exist. Tools resolve the tenant per call, so without that check a typo would
+serve happily, let the UI discover three tools, and fail once per question
+instead of once at startup.
+
+### On a Linux host
+
+`--allow-host` governs which Host header is accepted; it does not change what
+address the server binds. The default bind is loopback, and on Docker Desktop
+that is reachable because it proxies the container's traffic to the host. On a
+Linux host it is not: `host-gateway` resolves to the Docker bridge, and the
+bridge cannot reach a listener bound to `127.0.0.1`, so LibreChat's
+connections are refused. Bind to the bridge address there:
+
+```bash
+BRIDGE=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+GO2_TENANT=dawan go2 serve --http --host "$BRIDGE" --port 8765 \
+  --allow-host "host.docker.internal:8765" --allow-host "$BRIDGE:8765"
+```
+
+Bind to the bridge rather than `0.0.0.0`: there is no authentication in front
+of this server, so `0.0.0.0` offers the entire index to anything that can
+reach the port, including other machines on the network. Even bound to the
+bridge, any container on that host can reach it -- firewall the port, and do
+not do this on a shared machine.
+
 `--allow-host` is not optional. DNS-rebinding protection rejects a Host header
 it does not recognise, and a container calls this machine
 `host.docker.internal` -- without it every request fails with a 400 that looks

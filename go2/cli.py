@@ -370,6 +370,16 @@ def serve(
     from go2.mcp_server import run_http  # noqa: PLC0415 -- defer the mcp import.
 
     tenant = get_settings().tenant
+    # Resolve before binding. The tools resolve the tenant per call, so a
+    # misspelled GO2_TENANT would otherwise serve happily, let the client
+    # discover three tools, and fail only once per question -- turning an
+    # actionable startup error into a puzzle at the far end of a chat UI.
+    try:
+        resolve_tenant_id()
+    except UnknownTenantError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
     typer.echo(f"go2assistant MCP on http://{host}:{port}/mcp  (tenant: {tenant})")
     if host not in {"127.0.0.1", "localhost"}:
         typer.echo(

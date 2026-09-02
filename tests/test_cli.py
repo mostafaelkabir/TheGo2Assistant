@@ -14,7 +14,7 @@ from sqlalchemy import text
 from typer.testing import CliRunner
 
 from go2.cli import _collect, app
-from go2.config import Settings
+from go2.config import Settings, get_settings
 from go2.jobs.worker import INGEST_FILE, run_worker
 from go2.storage import repository as repo
 from go2.storage.db import connect
@@ -335,3 +335,29 @@ class TestConfigLocation:
         # Later entries override earlier ones in pydantic-settings, so a
         # project-local file must come last.
         assert self._env_sources()[-1] == ".env"
+
+
+class TestServeValidatesTenant:
+    """`serve --http` refuses to start against a tenant that does not exist."""
+
+    def test_an_unknown_tenant_exits_rather_than_serving(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Without this the server binds happily, the client discovers three
+        # tools, and every question fails instead of the process failing once.
+        monkeypatch.setenv("GO2_TENANT", "definitely-not-a-tenant")
+        get_settings.cache_clear()
+        try:
+            result = runner.invoke(app, ["serve", "--http", "--port", "8799"])
+        finally:
+            get_settings.cache_clear()
+        assert result.exit_code == 1
+
+    def test_the_failure_names_the_fix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GO2_TENANT", "definitely-not-a-tenant")
+        get_settings.cache_clear()
+        try:
+            result = runner.invoke(app, ["serve", "--http", "--port", "8799"])
+        finally:
+            get_settings.cache_clear()
+        assert "go2 tenant create" in result.output
