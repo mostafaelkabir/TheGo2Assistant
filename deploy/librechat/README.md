@@ -56,6 +56,29 @@ The API key must be created in the **Singapore** region. Keys are region-bound,
 so a Beijing key against the Singapore base URL fails rather than quietly
 routing company documents through another jurisdiction.
 
+## Two things that will bite
+
+**`host.docker.internal` is blocked by default.** LibreChat treats any host
+ending in `.internal` as an SSRF target, so both servers fail to initialise
+with `Domain ... is not allowed` and the UI loads zero tools. The
+`mcpSettings.allowedAddresses` block in `librechat.yaml` is the narrow
+exemption -- two host:port pairs, protection left on for everything else. Use
+`allowedAddresses`, not `allowedDomains`: setting the latter makes it
+authoritative and turns the whole thing into a strict whitelist. It is read
+once when the registry is built, so it needs a container restart, not a
+config reload.
+
+**`Invalid Host header` means the wrong server is on the port.** That error is
+this project's own DNS-rebinding check, not LibreChat's. It means something is
+listening on the port that was started without the matching `--allow-host` --
+usually a stale `go2 serve --http` from an earlier run, which binds 8765 by
+default. Check with `pgrep -fl "go2 serve --http"` before changing any config.
+
+**Set the four secrets before registering.** With `CREDS_KEY`, `CREDS_IV`,
+`JWT_SECRET` and `JWT_REFRESH_SECRET` unset, LibreChat generates temporary
+ones and warns; accounts created against them break when the values later
+change. Generate them first, or drop the database and start again as we did.
+
 ## Before letting anyone else use it
 
 Two settings that do not matter while you are the only user and matter a lot

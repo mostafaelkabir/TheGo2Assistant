@@ -10,6 +10,20 @@
 version: 1.3.14
 cache: true
 
+# LibreChat blocks internal targets as SSRF by default, and host.docker.internal
+# is blocked specifically because it ends in .internal -- which is a sensible
+# default, not an obstacle to route around. `allowedAddresses` is the narrow
+# exemption: it names two host:port pairs and leaves the protection on for
+# everything else. `allowedDomains` would be the wrong instrument here; setting
+# it makes it authoritative and turns the whole thing into a strict whitelist.
+#
+# Read once when the registry is built, so changing it needs a full restart of
+# the container, not a config reload.
+mcpSettings:
+  allowedAddresses:
+    - "host.docker.internal:8765"
+    - "host.docker.internal:8766"
+
 mcpServers:
   dawan:
     type: streamable-http
@@ -41,11 +55,20 @@ endpoints:
       baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
       models:
         default:
-          - qwen-plus
+          # qwen3-max first: the agent loop is the part model quality decides,
+          # and this is the strongest of these at tool-calling and at honouring
+          # the refusal instruction.
           - qwen3-max
+          - qwen-max
+          - qwen-plus-latest
+          - qwen-flash
         fetch: false
       titleConvo: true
-      titleModel: qwen-plus
+      # Free quota is per-model, and `qwen-plus` and `qwen-turbo` are already
+      # exhausted on this account -- they return 403 AllocationQuota.FreeTierOnly
+      # while the models above still work. Naming an exhausted model here breaks
+      # conversation titles only, which is a confusing way to find out.
+      titleModel: qwen-flash
       modelDisplayLabel: Qwen
 
     # Already running on this machine, so it needs no key and sends nothing
