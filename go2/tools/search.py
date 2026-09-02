@@ -10,12 +10,14 @@ metadata filters with semantic search.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
 from go2.config import get_settings
+from go2.observability import Trace
 from go2.rag.retrieval import SearchFilters, SearchOptions, search
 from go2.storage.db import connect, default_tenant_id
 
@@ -85,13 +87,15 @@ def search_documents(
     """
     tenant_id = default_tenant_id()
     settings = get_settings()
+    trace = Trace(kind="search", label=query)
+    started = time.perf_counter()
     with connect() as conn:
         hits = search(
             conn,
             tenant_id=tenant_id,
             query=query,
             filters=SearchFilters(source=source, title_contains=title_contains),
-            options=SearchOptions(limit=limit),
+            options=SearchOptions(limit=limit, trace=trace),
         )
         stranded = unsearchable_count(conn, tenant_id) if not hits else 0
 
@@ -124,6 +128,11 @@ def search_documents(
                 f" Note: {stranded} documents are indexed under a different embedding "
                 "model and are currently unsearchable."
             )
+
+    trace.duration_ms = (time.perf_counter() - started) * 1000
+    trace.outcome = "answered" if sufficient else "refused"
+    trace.meta = {"threshold": threshold, "best_score": best, "returned": len(hits)}
+    trace.save(tenant_id=tenant_id)
 
     return {
         "sufficient_evidence": sufficient,

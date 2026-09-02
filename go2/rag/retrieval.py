@@ -15,12 +15,14 @@ scales, so any weighted sum of the two raw scores would be arbitrary.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sqlalchemy import text
 
 from go2.config import get_settings
+from go2.observability import Trace
 from go2.rag.embedding import embed_query
 from go2.storage.repository import vector_literal
 
@@ -89,13 +91,19 @@ class RetrievedRow(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SearchOptions:
-    """Tuning for one search."""
+    """Per-call settings for one search.
+
+    Carries the trace recorder as well as the tuning knobs: it is per-call
+    state like the rest, and threading it as a separate parameter pushed the
+    function past the argument count where a signature stops being readable.
+    """
 
     limit: int = 10
     # Retrieved from each retriever before fusion. Recall-oriented: the
     # reranker is what turns a wide candidate pool into a precise answer.
     candidates: int = 50
     rerank: bool = True
+    trace: Trace | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +152,40 @@ _SELECT = """
 """
 
 
+# Terms shorter than this carry almost no discriminating power and appear in
+# nearly every chunk, so they only cost time.
+_MIN_TERM = 2
+_MAX_TERMS = 24
+_WORD = re.compile(r"\w+", re.UNICODE)
+
+
+def build_tsquery(query: str) -> str:
+    """Turn a natural-language question into an OR-joined tsquery.
+
+    Postgres' ``plainto_tsquery`` joins every term with AND, and the 'simple'
+    text configuration removes no stopwords -- so a ten-word question demanded
+    a chunk containing all ten words, including "what", "is" and "the". The
+    result was zero full-text matches for every natural-language question, and
+    a hybrid search silently running on its vector half alone. It only ever
+    worked for bare identifiers, which is exactly the case the tests covered.
+
+    OR is the right join for a candidate generator: retrieve anything sharing
+    vocabulary, and let ts_rank_cd, fusion and the reranker sort out precision.
+
+    Args:
+        query: The user's question.
+
+    Returns:
+        A tsquery string, or "" when the query has no usable terms.
+    """
+    terms = [t.lower() for t in _WORD.findall(query) if len(t) >= _MIN_TERM]
+    seen: list[str] = []
+    for term in terms:
+        if term not in seen:
+            seen.append(term)
+    return " | ".join(seen[:_MAX_TERMS])
+
+
 def _where(filters: SearchFilters, extra: str = "") -> tuple[str, dict[str, Any]]:
     parts, params = filters.clauses()
     parts.insert(0, "c.tenant_id = :tenant_id")
@@ -184,16 +226,20 @@ def _vector_candidates(
 def _text_candidates(
     conn: Connection, *, tenant_id: str, query: str, limit: int, filters: SearchFilters
 ) -> list[RetrievedRow]:
-    where, params = _where(filters, "c.tsv @@ plainto_tsquery('simple', :qtext)")
+    tsquery = build_tsquery(query)
+    if not tsquery:
+        return []
+
+    where, params = _where(filters, "c.tsv @@ to_tsquery('simple', :qtext)")
     sql = (
         f"{_SELECT}{where} "
-        "ORDER BY ts_rank_cd(c.tsv, plainto_tsquery('simple', :qtext)) DESC LIMIT :limit"
+        "ORDER BY ts_rank_cd(c.tsv, to_tsquery('simple', :qtext)) DESC LIMIT :limit"
     )
     return cast(
         "list[RetrievedRow]",
         list(
             conn.execute(
-                text(sql), {"tenant_id": tenant_id, "qtext": query, "limit": limit, **params}
+                text(sql), {"tenant_id": tenant_id, "qtext": tsquery, "limit": limit, **params}
             ).all()
         ),
     )
@@ -226,7 +272,10 @@ def search(
         tenant_id: Owning tenant; every query filters on it.
         query: The user's question.
         filters: Optional metadata narrowing.
-        options: Tuning. Defaults are the ones the tools use.
+        options: Per-call settings, including an optional trace recorder.
+            Each component reports what it received and produced, so a wrong
+            answer can be traced to the stage that caused it rather than
+            guessed at.
 
     Returns:
         Hits ordered best first.
@@ -236,27 +285,62 @@ def search(
 
     active = filters or SearchFilters()
     opts = options or SearchOptions()
-    fused = _fuse(
-        {
-            "vector": _vector_candidates(
-                conn, tenant_id=tenant_id, query=query, limit=opts.candidates, filters=active
-            ),
-            "text": _text_candidates(
-                conn, tenant_id=tenant_id, query=query, limit=opts.candidates, filters=active
-            ),
-        }
-    )
+    tracer = opts.trace or Trace(kind="search")
+    settings = get_settings()
+    remote = settings.embedding_provider == "jina"
+
+    with tracer.step(
+        "embed_query", egress=remote, chars=len(query), provider=settings.embedding_provider
+    ) as out:
+        vectors = _vector_candidates(
+            conn, tenant_id=tenant_id, query=query, limit=opts.candidates, filters=active
+        )
+        out.update(candidates=len(vectors), dimensions=settings.embedding_dim)
+
+    with tracer.step("full_text_search", index="GIN tsvector") as out:
+        texts = _text_candidates(
+            conn, tenant_id=tenant_id, query=query, limit=opts.candidates, filters=active
+        )
+        out.update(candidates=len(texts))
+
+    with tracer.step("rrf_fusion", vector=len(vectors), text=len(texts)) as out:
+        fused = _fuse({"vector": vectors, "text": texts})
+        out.update(
+            fused=len(fused),
+            found_by_both=sum(1 for c in fused if len(c.ranks) > 1),
+        )
+
     if not fused:
+        tracer.outcome = "no_candidates"
         return []
 
-    if opts.rerank:
-        from go2.rag.rerank import rerank_order  # noqa: PLC0415 -- defer the model import.
+    if not opts.rerank:
+        hits = [_hit(c.row, c.rrf) for c in fused[: opts.limit]]
+        tracer.outcome = "no_rerank"
+        return hits
 
-        pool = fused[: get_settings().rerank_candidates]
+    from go2.rag.rerank import rerank_order  # noqa: PLC0415 -- defer the model import.
+
+    pool = fused[: settings.rerank_candidates]
+    rerank_remote = settings.rerank_provider == "jina"
+    with tracer.step(
+        "rerank",
+        egress=rerank_remote,
+        candidates=len(pool),
+        chars_each=settings.rerank_max_chars,
+        provider=settings.rerank_provider,
+    ) as out:
         ordered = rerank_order(query, [c.row.text for c in pool], limit=opts.limit)
-        return [_hit(pool[i].row, score) for i, score in ordered]
+        hits = [_hit(pool[i].row, score) for i, score in ordered]
+        best = hits[0].score if hits else None
+        out.update(
+            returned=len(hits),
+            best_score=round(best, 4) if best is not None else None,
+            above_evidence_floor=bool(best is not None and best >= settings.min_evidence_score),
+        )
 
-    return [_hit(c.row, c.rrf) for c in fused[: opts.limit]]
+    tracer.outcome = "hits" if hits else "empty"
+    return hits
 
 
 def _hit(row: RetrievedRow, score: float) -> SearchHit:

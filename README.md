@@ -93,6 +93,7 @@ flowchart LR
 | `go2 status` | What is indexed, and which model embedded it |
 | `go2 scan PATH` | Report sensitive values in files, without ingesting |
 | `go2 evaluate` | Run `eval/questions.yaml`, report rank and MRR |
+| `go2 trace` | Per-component steps of recent requests, with egress marked |
 | `go2 serve` | MCP server on stdio |
 
 ---

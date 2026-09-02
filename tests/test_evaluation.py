@@ -22,7 +22,7 @@ EXPECTED_TWO = 2
 
 def _outcome(rank: int | None, *, expect_text: str | None = None, found: bool = False) -> Outcome:
     return Outcome(
-        case=Case(question="q", expect_document="doc", expect_text=expect_text),
+        case=Case(question="q", expect_documents=["doc"], expect_text=expect_text),
         rank=rank,
         top_citation="doc",
         top_score=1.0,
@@ -39,8 +39,22 @@ class TestLoading:
         path.write_text("- question: how much?\n  expect_document: Contract\n")
         cases = load_cases(path)
         assert cases[0].question == "how much?"
-        assert cases[0].expect_document == "Contract"
+        assert cases[0].expect_documents == ["Contract"]
         assert cases[0].expect_text is None
+
+    def test_a_case_may_accept_several_documents(self, tmp_path: Path) -> None:
+        # A question often has more than one right source; insisting on one
+        # invites tuning the eval until it passes.
+        path = tmp_path / "q.yaml"
+        path.write_text("- question: how?\n  expect_document:\n    - Runbook\n    - Overview\n")
+        assert load_cases(path)[0].expect_documents == ["Runbook", "Overview"]
+
+    def test_a_refusal_case_needs_no_document(self, tmp_path: Path) -> None:
+        path = tmp_path / "q.yaml"
+        path.write_text("- question: unrelated?\n  expect_no_answer: true\n")
+        case = load_cases(path)[0]
+        assert case.expect_no_answer
+        assert case.expect_documents == []
 
     def test_reads_the_optional_text_expectation(self, tmp_path: Path) -> None:
         path = tmp_path / "q.yaml"

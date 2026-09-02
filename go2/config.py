@@ -95,7 +95,16 @@ class Settings(BaseSettings):
     # search latency, and cost is linear in candidates x characters, so these
     # two settings are the whole latency budget. Recall is already handled by
     # fusing two retrievers; the reranker only has to order what they found.
-    rerank_candidates: int = Field(default=15, ge=1, le=200)
+    # Sized against what fusion actually produces. Once the full-text half was
+    # working, fusion returned ~99 candidates rather than ~50, and a 15-wide
+    # window let correct documents fall outside it: eval went 16/17 -> 13/17 on
+    # the same corpus. At 50 it recovers to 15/17 with the widest threshold
+    # margin measured (+0.16).
+    #
+    # Nearly free against a hosted reranker, which scores the whole batch in one
+    # request. A local cross-encoder pays per candidate, so on
+    # GO2_RERANK_PROVIDER=local this is worth lowering.
+    rerank_candidates: int = Field(default=50, ge=1, le=200)
     # Characters of each passage shown to the cross-encoder. Measured cost is
     # ~0.2 ms/char/passage, so this is the single biggest latency lever.
     # Truncation applies only to the relevance judgement -- the full text is

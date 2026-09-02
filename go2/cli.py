@@ -7,7 +7,7 @@ import logging
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from sqlalchemy import text
@@ -18,6 +18,8 @@ from go2.evaluation import EvalFileError, load_cases, run_all, summarise
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
 from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
+from go2.observability import Trace
+from go2.observability import recent as recent_traces
 from go2.rag.retrieval import SearchFilters, SearchOptions
 from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
@@ -178,14 +180,22 @@ def search(
     client attached.
     """
     tenant_id = default_tenant_id()
+    recorder = Trace(kind="search", label=query)
+    started = time.perf_counter()
     with connect() as conn:
         hits = run_search(
             conn,
             tenant_id=tenant_id,
             query=query,
             filters=SearchFilters(source=source or None),
-            options=SearchOptions(limit=limit, rerank=not no_rerank),
+            options=SearchOptions(limit=limit, rerank=not no_rerank, trace=recorder),
         )
+    threshold = get_settings().min_evidence_score
+    best = hits[0].score if hits else None
+    recorder.duration_ms = (time.perf_counter() - started) * 1000
+    recorder.outcome = "answered" if best is not None and best >= threshold else "refused"
+    recorder.meta = {"threshold": threshold, "best_score": best, "returned": len(hits)}
+    recorder.save(tenant_id=tenant_id)
 
     if not hits:
         with connect() as conn:
@@ -427,6 +437,48 @@ def docs(
 
     total = sum(int(r["chunks"]) for r in rows)
     typer.echo(f"\n{len(rows)} documents, {total} chunks")
+
+
+@app.command()
+def trace(
+    *,
+    last: Annotated[int, typer.Option(help="How many recent requests to show.")] = 3,
+) -> None:
+    """Show what each component did with the data, for recent requests.
+
+    Application logs record that a request arrived and a response left. This
+    records the path between: which component ran, what it received, what it
+    produced, how long it took, and whether it sent anything off the machine.
+    """
+    entries = recent_traces(default_tenant_id(), limit=last)
+    if not entries:
+        typer.echo("no traces recorded yet — run a search first")
+        return
+
+    for entry in entries:
+        stamp = entry["created_at"].strftime("%H:%M:%S")
+        verdict = entry["outcome"] or "?"
+        typer.echo(
+            f"\n{stamp}  {verdict.upper():8}  {entry['duration_ms']:.0f} ms   {entry['label'][:58]}"
+        )
+        total = max(entry["duration_ms"] or 1.0, 1.0)
+        for step in entry["steps"]:
+            share = step["duration_ms"] / total
+            bar = "█" * max(1, round(share * 22))
+            flag = " → LEAVES MACHINE" if step["egress"] else ""
+            typer.echo(
+                f"  {step['component']:<18} {step['duration_ms']:>7.0f} ms "
+                f"{bar:<22} {share * 100:>4.0f}%{flag}"
+            )
+            typer.echo(f"      in  {_facts(step['input'])}")
+            typer.echo(f"      out {_facts(step['output'])}")
+
+
+def _facts(payload: dict[str, Any]) -> str:
+    """Render a step's recorded facts on one line."""
+    if not payload:
+        return "-"
+    return "  ".join(f"{k}={v}" for k, v in payload.items())
 
 
 @app.command()

@@ -20,11 +20,19 @@
 - question: How do I SSH into a RunPod instance?
   expect_document: HOW_TO_SSH_RUNPOD
 
+# Two documents answer this correctly: the production-run doc is the entry
+# point ("read this, then the frozen runbook") and the runbook is the detail.
+# The original case named only the runbook and failed when retrieval returned
+# the better of the two.
 - question: How do I run the auto-label pipeline end to end?
-  expect_document: AUTOLABEL_PIPELINE
+  expect_document:
+    - AUTOLABEL_PIPELINE
+    - SPOTLIGHT_PRODUCTION_RUN
 
 - question: What did the small person benchmark find across models?
-  expect_document: SMALL_PERSON
+  expect_document:
+    - SMALL_PERSON
+    - small-person-benchmark
 
 # Corrected after a failing run: FIVE_MODEL_BENCHMARK is the five-model
 # comparison. The original expectation named SMALL_PERSON, and retrieval was

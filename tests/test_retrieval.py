@@ -18,7 +18,15 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.jobs.ingest import ingest_document
-from go2.rag.retrieval import RRF_K, SearchFilters, SearchOptions, _fuse, search
+from go2.rag.retrieval import (
+    RRF_K,
+    SearchFilters,
+    SearchOptions,
+    _fuse,
+    _text_candidates,
+    build_tsquery,
+    search,
+)
 from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id, get_engine
@@ -231,3 +239,49 @@ class TestCitations:
         assert reranked
         assert raw
         assert "Globex" in reranked[0].title
+
+
+class TestTsQuery:
+    """The keyword half must survive a natural-language question."""
+
+    def test_terms_are_joined_with_or(self) -> None:
+        # plainto_tsquery joins with AND, and the 'simple' config removes no
+        # stopwords, so a ten-word question demanded a chunk containing "what",
+        # "is" and "the" as well. Every natural-language question matched
+        # nothing, and hybrid search silently ran on its vector half alone.
+        assert build_tsquery("What is the renewal fee") == "what | is | the | renewal | fee"
+
+    def test_duplicates_collapse(self) -> None:
+        assert build_tsquery("fee fee renewal") == "fee | renewal"
+
+    def test_single_characters_are_dropped(self) -> None:
+        assert "a" not in build_tsquery("a renewal fee").split(" | ")
+
+    def test_punctuation_cannot_break_the_query(self) -> None:
+        # Raw punctuation reaching to_tsquery is a syntax error, not a bad
+        # result -- the whole search would fail.
+        assert build_tsquery("cost & scope | (urgent)!") == "cost | scope | urgent"
+
+    def test_an_identifier_survives_intact(self) -> None:
+        assert "2026" in build_tsquery("INV-2026-0417")
+
+    def test_arabic_terms_are_kept(self) -> None:
+        assert build_tsquery("رسوم التجديد") == "رسوم | التجديد"
+
+    def test_a_query_with_no_usable_terms_is_empty(self) -> None:
+        assert build_tsquery("? ! -") == ""
+
+
+@pytest.mark.usefixtures("corpus")
+class TestKeywordHalfIsAlive:
+    """A natural-language question must produce keyword candidates."""
+
+    def test_natural_language_matches_full_text(self, conn: Connection, tenant_id: str) -> None:
+        rows = _text_candidates(
+            conn,
+            tenant_id=tenant_id,
+            query="How much notice is needed to terminate the contract?",
+            limit=20,
+            filters=SearchFilters(),
+        )
+        assert rows, "full-text search returned nothing for a natural-language question"

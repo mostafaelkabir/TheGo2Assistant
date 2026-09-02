@@ -14,7 +14,7 @@ document actually appears is the measurement.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -41,9 +41,19 @@ class Case:
     """
 
     question: str
-    expect_document: str = ""
+    # Any one of these titles satisfies the case. Real questions often have
+    # more than one right source -- an entry-point document and the runbook it
+    # points at are both correct answers to "how do I run this". Forcing a
+    # single expected title invites tuning the eval until it passes, which is
+    # how an eval quietly stops measuring anything.
+    expect_documents: list[str] = field(default_factory=list)
     expect_text: str | None = None
     expect_no_answer: bool = False
+
+    @property
+    def expect_document(self) -> str:
+        """The first acceptable title, for reporting."""
+        return " or ".join(self.expect_documents) if self.expect_documents else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,13 +118,19 @@ def load_cases(path: Path) -> list[Case]:
             msg = f"case {index} in {path} needs a 'question'"
             raise EvalFileError(msg)
         refuses = bool(raw.get("expect_no_answer", False))
-        if not refuses and "expect_document" not in raw:
+        expected = raw.get("expect_document")
+        titles = (
+            [str(t) for t in expected]
+            if isinstance(expected, list)
+            else ([str(expected)] if expected is not None else [])
+        )
+        if not refuses and not titles:
             msg = f"case {index} in {path} needs 'expect_document' or 'expect_no_answer'"
             raise EvalFileError(msg)
         cases.append(
             Case(
                 question=str(raw["question"]),
-                expect_document=str(raw.get("expect_document", "")),
+                expect_documents=titles,
                 expect_text=None if raw.get("expect_text") is None else str(raw["expect_text"]),
                 expect_no_answer=refuses,
             )
@@ -146,7 +162,7 @@ def run_case(case: Case, *, tenant_id: str, limit: int = DEFAULT_LIMIT) -> Outco
     rank: int | None = None
     text_found = False
     for position, hit in enumerate(hits, start=1):
-        if case.expect_document.lower() in hit.title.lower():
+        if any(t.lower() in hit.title.lower() for t in case.expect_documents):
             if rank is None:
                 rank = position
             if case.expect_text and case.expect_text.lower() in hit.text.lower():
