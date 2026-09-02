@@ -34,6 +34,12 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://go2:go2@localhost:5433/go2"
 
+    # Which isolated workspace this process operates on. One operator working
+    # across several projects switches with GO2_TENANT or a project-local .env;
+    # a multi-user deployment resolves it from the authenticated principal
+    # instead, and nothing below go2.tenancy changes.
+    tenant: str = "local"
+
     # Alibaba Model Studio, OpenAI-compatible surface.
     # Singapore endpoint: the Beijing one is cheaper but a different data
     # jurisdiction for company documents, and carries no free quota.

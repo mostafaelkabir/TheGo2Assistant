@@ -20,7 +20,8 @@ from go2.jobs.ingest import ingest_document
 from go2.mcp_server import mcp
 from go2.scope import Scope
 from go2.storage import repository as repo
-from go2.storage.db import connect, default_tenant_id
+from go2.storage.db import connect
+from go2.tenancy import resolve_tenant_id
 from go2.tools.search import fetch_document, list_documents, search_documents
 
 if TYPE_CHECKING:
@@ -86,7 +87,7 @@ class TestToolsAgainstRealData:
         if not _database_available():  # pragma: no cover - environment dependent
             pytest.skip("no database reachable")
 
-        tenant_id = default_tenant_id()
+        tenant_id = resolve_tenant_id()
         external_id = f"mcp-{uuid.uuid4()}"
         body = (
             "GLOBEX SUPPLY CONTRACT. Invoice INV-2026-0918. Globex requires "

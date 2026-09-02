@@ -17,7 +17,8 @@ from go2.cli import _collect, app
 from go2.config import Settings
 from go2.jobs.worker import INGEST_FILE, run_worker
 from go2.storage import repository as repo
-from go2.storage.db import connect, default_tenant_id
+from go2.storage.db import connect
+from go2.tenancy import resolve_tenant_id
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -211,7 +212,7 @@ class TestQueue:
     @pytest.fixture(autouse=True)
     def _require_empty_queue(self) -> None:
         with connect() as conn:
-            queued = repo.job_counts(conn, tenant_id=default_tenant_id()).get("queued", 0)
+            queued = repo.job_counts(conn, tenant_id=resolve_tenant_id()).get("queued", 0)
         if queued:
             pytest.skip(f"{queued} jobs already queued; not draining a real backlog")
 
@@ -243,7 +244,7 @@ class TestQueue:
         assert "queued 2 files" in result.stdout
         with connect() as conn:
             assert (
-                repo.job_counts(conn, tenant_id=default_tenant_id()).get("queued", 0)
+                repo.job_counts(conn, tenant_id=resolve_tenant_id()).get("queued", 0)
                 >= EXPECTED_NESTED_FILES
             )
 
@@ -252,12 +253,12 @@ class TestQueue:
         (tmp_path / "a.pdf").write_bytes(pdf_with_text)
         runner.invoke(app, ["ingest", str(tmp_path), "--background"])
 
-        report = run_worker(tenant_id=default_tenant_id(), once=True)
+        report = run_worker(tenant_id=resolve_tenant_id(), once=True)
 
         assert report.processed >= 1
         assert report.chunks > 0
         with connect() as conn:
-            assert repo.job_counts(conn, tenant_id=default_tenant_id()).get("queued", 0) == 0
+            assert repo.job_counts(conn, tenant_id=resolve_tenant_id()).get("queued", 0) == 0
 
     @pytest.mark.usefixtures("_clean_queue", "_clean_uploads")
     def test_an_oversized_file_is_skipped_not_embedded(self, tmp_path: Path) -> None:
@@ -267,7 +268,7 @@ class TestQueue:
         big.write_text("# Heading\n" + ("word " * 200_000))
         runner.invoke(app, ["ingest", str(tmp_path), "--background"])
 
-        report = run_worker(tenant_id=default_tenant_id(), once=True, max_bytes=1000)
+        report = run_worker(tenant_id=resolve_tenant_id(), once=True, max_bytes=1000)
 
         assert report.processed == 1
         assert report.chunks == 0  # skipped, not embedded
@@ -282,7 +283,7 @@ class TestQueue:
         runner.invoke(app, ["ingest", str(tmp_path), "--background"])
         gone.unlink()  # deleted between queueing and processing
 
-        report = run_worker(tenant_id=default_tenant_id(), once=True)
+        report = run_worker(tenant_id=resolve_tenant_id(), once=True)
 
         assert report.failed == 1
         assert report.processed == 1  # the other file still went through
@@ -290,7 +291,7 @@ class TestQueue:
     @pytest.mark.usefixtures("_clean_queue")
     def test_a_claimed_job_is_not_handed_out_twice(self, tmp_path: Path) -> None:
         # FOR UPDATE SKIP LOCKED is what makes concurrent workers safe.
-        tenant_id = default_tenant_id()
+        tenant_id = resolve_tenant_id()
         with connect() as conn:
             repo.enqueue_job(
                 conn, tenant_id=tenant_id, kind=INGEST_FILE, payload={"path": str(tmp_path)}
@@ -308,7 +309,7 @@ class TestQueue:
         with connect() as conn:
             repo.enqueue_job(
                 conn,
-                tenant_id=default_tenant_id(),
+                tenant_id=resolve_tenant_id(),
                 kind=INGEST_FILE,
                 payload={"path": str(tmp_path / "x")},
             )

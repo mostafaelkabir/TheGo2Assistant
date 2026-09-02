@@ -26,8 +26,16 @@ from go2.scope import Scope
 from go2.security.pii import redact as redact_pii
 from go2.security.scan import scan_files
 from go2.storage import repository as repo
-from go2.storage.db import connect, default_tenant_id
+from go2.storage.db import connect
 from go2.storage.db import migrate as run_migrations
+from go2.tenancy import (
+    InvalidSlugError,
+    UnknownTenantError,
+    create_tenant,
+    delete_tenant,
+    list_tenants,
+    resolve_tenant_id,
+)
 from go2.tools.search import list_documents as _list_documents
 from go2.tools.search import unsearchable_count
 
@@ -87,7 +95,7 @@ def ingest(
         typer.echo("nothing to ingest")
         raise typer.Exit(code=1)
 
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
 
     if background:
         queued = enqueue_paths(files, tenant_id=tenant_id, source=UPLOAD_SOURCE, account="local")
@@ -179,7 +187,7 @@ def search(
     The same retrieval the MCP server exposes, for checking quality without a
     client attached.
     """
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     recorder = Trace(kind="search", label=query)
     started = time.perf_counter()
     with connect() as conn:
@@ -353,7 +361,7 @@ def worker(
     Embedding is slow enough on CPU that a large folder is better handed to a
     worker than watched in a terminal. Safe to run more than one.
     """
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     started = time.monotonic()
 
     def progress(name: str, chunks: int, remaining: int) -> None:
@@ -379,7 +387,7 @@ def jobs(
     *, clear: Annotated[bool, typer.Option("--clear", help="Delete finished jobs.")] = False
 ) -> None:
     """Show the ingestion queue."""
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     with connect() as conn:
         if clear:
             removed = repo.clear_finished_jobs(conn, tenant_id=tenant_id)
@@ -450,7 +458,7 @@ def trace(
     records the path between: which component ran, what it received, what it
     produced, how long it took, and whether it sent anything off the machine.
     """
-    entries = recent_traces(default_tenant_id(), limit=last)
+    entries = recent_traces(resolve_tenant_id(), limit=last)
     if not entries:
         typer.echo("no traces recorded yet — run a search first")
         return
@@ -481,10 +489,80 @@ def _facts(payload: dict[str, Any]) -> str:
     return "  ".join(f"{k}={v}" for k, v in payload.items())
 
 
+tenant_app = typer.Typer(help="Isolated workspaces. Each holds its own documents and index.")
+app.add_typer(tenant_app, name="tenant")
+
+
+@tenant_app.command("list")
+def tenant_list() -> None:
+    """Show every workspace and how much each holds."""
+    active = get_settings().tenant
+    for tenant in list_tenants():
+        marker = "*" if tenant.slug == active else " "
+        typer.echo(
+            f"{marker} {tenant.slug:<20} {tenant.documents:>5} documents {tenant.chunks:>7} chunks"
+        )
+    typer.echo(f"\n* = active (GO2_TENANT={active})")
+
+
+@tenant_app.command("create")
+def tenant_create(slug: Annotated[str, typer.Argument(help="Name for the workspace.")]) -> None:
+    """Create an empty workspace."""
+    try:
+        tenant = create_tenant(slug)
+    except InvalidSlugError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"created {tenant.slug}\n\n"
+        f"Use it by setting GO2_TENANT={tenant.slug} — in the shell, in a project-local\n"
+        f".env, or in ~/.config/go2/.env to make it the default."
+    )
+
+
+@tenant_app.command("current")
+def tenant_current() -> None:
+    """Show the active workspace and what it contains."""
+    slug = get_settings().tenant
+    try:
+        resolve_tenant_id()
+    except UnknownTenantError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    match = next((t for t in list_tenants() if t.slug == slug), None)
+    if match:
+        typer.echo(f"{match.slug}: {match.documents} documents, {match.chunks} chunks")
+
+
+@tenant_app.command("delete")
+def tenant_delete(
+    slug: Annotated[str, typer.Argument(help="Workspace to remove.")],
+    *,
+    yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation.")] = False,
+) -> None:
+    """Permanently remove a workspace and everything in it."""
+    try:
+        target = next((t for t in list_tenants() if t.slug == slug), None)
+        if target is None:
+            resolve_tenant_id(slug)  # raises with the available list
+            return
+        if not yes:
+            typer.echo(
+                f"{slug} holds {target.documents} documents and {target.chunks} chunks.\n"
+                f"This cannot be undone. Re-run with --yes to confirm."
+            )
+            raise typer.Exit(code=1)
+        removed = delete_tenant(slug)
+    except UnknownTenantError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"removed {slug} and its {removed} documents")
+
+
 @app.command()
 def status() -> None:
     """Show what is currently indexed."""
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     with connect() as conn:
         rows = conn.execute(
             text("""
