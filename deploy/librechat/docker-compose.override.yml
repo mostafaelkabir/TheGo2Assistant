@@ -1,0 +1,17 @@
+# Copy to the root of a LibreChat checkout as `docker-compose.override.yml`.
+#
+# Two jobs: mount our librechat.yaml into the API container, and make sure the
+# container can resolve the Mac it runs on. Docker Desktop provides
+# host.docker.internal already; the extra_hosts line is what makes this work
+# unchanged on a Linux host, where it is not provided.
+
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - ALIBABA_API_KEY=${ALIBABA_API_KEY}

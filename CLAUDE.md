@@ -74,6 +74,7 @@ go2 docs                            # every ingested file
 go2 docs --by-folder                # ...grouped by directory
 go2 status                          # what is indexed, and which model embedded it
 go2 serve                           # MCP server on stdio
+go2 serve --http --port 8765        # ...over Streamable HTTP, for a chat UI
 
 uv run pytest                       # full suite
 uv run pytest -m "not slow"         # skip the model-loading ones

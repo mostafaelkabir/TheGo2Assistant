@@ -339,11 +339,45 @@ def evaluate(
 
 
 @app.command()
-def serve() -> None:
-    """Run the MCP server on stdio for Claude Code or Claude Desktop."""
-    from go2.mcp_server import main as run_server  # noqa: PLC0415 -- defer the mcp import.
+def serve(
+    *,
+    http: Annotated[
+        bool, typer.Option("--http", help="Serve over Streamable HTTP instead of stdio.")
+    ] = False,
+    host: Annotated[str, typer.Option(help="Interface to bind under --http.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port to bind under --http.")] = 8765,
+    allow_host: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-host",
+            help="Extra Host header to accept, e.g. host.docker.internal:8765. Repeatable.",
+        ),
+    ] = None,
+) -> None:
+    """Run the MCP server.
 
-    run_server()
+    Default is stdio, for a client that launches this process itself -- Claude
+    Code and Claude Desktop both do. ``--http`` is for a client that cannot,
+    such as a chat UI in a container, which has no `go2` and no route to
+    Postgres of its own.
+    """
+    if not http:
+        from go2.mcp_server import main as run_server  # noqa: PLC0415 -- defer the mcp import.
+
+        run_server()
+        return
+
+    from go2.mcp_server import run_http  # noqa: PLC0415 -- defer the mcp import.
+
+    tenant = get_settings().tenant
+    typer.echo(f"go2assistant MCP on http://{host}:{port}/mcp  (tenant: {tenant})")
+    if host not in {"127.0.0.1", "localhost"}:
+        typer.echo(
+            "warning: binding beyond loopback exposes the whole index -- "
+            "there is no authentication in front of this yet.",
+            err=True,
+        )
+    run_http(host=host, port=port, allowed_hosts=list(allow_host or []))
 
 
 @app.command()
