@@ -1,17 +1,34 @@
 # Copy to the root of a LibreChat checkout as `docker-compose.override.yml`.
 #
-# Two jobs: mount our librechat.yaml into the API container, and make sure the
-# container can resolve the Mac it runs on. Docker Desktop provides
-# host.docker.internal already; the extra_hosts line is what makes this work
-# unchanged on a Linux host, where it is not provided.
+# Three jobs:
+#
+# 1. Mount our librechat.yaml into the API container.
+# 2. Drop the dependency on `rag_api`. LibreChat ships its own RAG stack --
+#    rag_api plus a second pgvector -- and we do not want it. Retrieval here is
+#    agentic search over one ingestion pipeline; a parallel retrieve-then-stuff
+#    path with its own copy of the documents is the exact duplication the
+#    architecture exists to avoid. It also spares a machine that is already
+#    running several databases another Postgres.
+# 3. Resolve host.docker.internal, so the container can reach `go2 serve --http`
+#    on the Mac. Docker Desktop provides it; the explicit line keeps this
+#    working on a Linux host, which does not.
 
 services:
   api:
+    depends_on:
+      - mongodb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
+      - type: bind
+        source: ./.env
+        target: /app/.env
       - type: bind
         source: ./librechat.yaml
         target: /app/librechat.yaml
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./images:/app/client/public/images
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - librechat-data:/app/data
     environment:
-      - ALIBABA_API_KEY=${ALIBABA_API_KEY}
+      - ALIBABA_API_KEY=${ALIBABA_API_KEY:-}

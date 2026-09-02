@@ -37,8 +37,16 @@ cp .env.example .env
 cp /path/to/Go2Assistant/deploy/librechat/librechat.yaml .
 cp /path/to/Go2Assistant/deploy/librechat/docker-compose.override.yml .
 echo "ALIBABA_API_KEY=sk-your-key" >> .env
-docker compose up -d
+docker compose up -d --scale rag_api=0 --scale vectordb=0 mongodb meilisearch api
 ```
+
+The `--scale` flags matter. LibreChat ships its own RAG stack -- `rag_api` and a
+second pgvector -- and `api` declares `depends_on: rag_api`, so a plain
+`docker compose up` starts both. Compose *merges* `depends_on` rather than
+replacing it, so the override cannot drop that edge; scaling to zero is what
+actually keeps them down. Nothing here needs them: retrieval is agentic search
+over one ingestion pipeline, and a parallel retrieve-then-stuff path with its
+own copy of the documents is the duplication this architecture exists to avoid.
 
 Then open http://localhost:3080, register an account, and pick
 **Qwen (Alibaba, Singapore)**. The `dawan` and `atmata` servers appear in the

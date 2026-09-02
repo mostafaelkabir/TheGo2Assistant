@@ -47,3 +47,24 @@ endpoints:
       titleConvo: true
       titleModel: qwen-plus
       modelDisplayLabel: Qwen
+
+    # Already running on this machine, so it needs no key and sends nothing
+    # anywhere. Use it to prove the wiring end to end -- tools discovered,
+    # tenant correct, citations rendered -- while waiting on a Model Studio key.
+    #
+    # Not a substitute for one. This design leans on the model to drive a tool
+    # loop and to refuse when `sufficient_evidence` is false, and a 3B model is
+    # weak at exactly that: it will skip tools, or answer from its own weights
+    # and ignore the abstention rule. A wrong answer from llama3.2 here is a
+    # model limitation, not a retrieval bug -- check `go2 search` before
+    # concluding anything is broken.
+    - name: "Ollama (local)"
+      apiKey: "ollama"
+      baseURL: "http://host.docker.internal:11434/v1"
+      models:
+        default:
+          - llama3.2:latest
+        fetch: false
+      titleConvo: true
+      titleModel: llama3.2:latest
+      modelDisplayLabel: Ollama
