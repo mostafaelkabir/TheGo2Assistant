@@ -101,6 +101,21 @@ class Settings(BaseSettings):
     # Truncation applies only to the relevance judgement -- the full text is
     # still what gets returned and read.
     rerank_max_chars: int = Field(default=512, ge=64, le=8000)
+    # Below this reranker score, retrieved passages are treated as no evidence
+    # at all. Measured on a real corpus: questions the documents answer score
+    # 0.48-0.63, questions they do not score -0.11 to 0.19. The gap is wide,
+    # and this sits inside it. Without a floor, a question about something the
+    # corpus has never heard of still returns the least-irrelevant paragraph,
+    # which is exactly the material an ungrounded answer is built from.
+    #
+    # This is a safety dial, not a tuned constant. Raise it and the assistant
+    # refuses more questions it could have answered; lower it and it answers
+    # more from weak evidence. For a system whose whole claim is that it
+    # answers only from recorded data, over-refusing is the cheap error and
+    # over-answering is the expensive one, so it errs high. `go2 evaluate`
+    # reports the margin between the weakest accepted and strongest refused
+    # case, which is how to move it with evidence rather than by feel.
+    min_evidence_score: float = Field(default=0.30)
 
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")

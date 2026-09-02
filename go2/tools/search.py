@@ -65,7 +65,7 @@ def search_documents(
     limit: int = 8,
     source: str | None = None,
     title_contains: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Find passages answering a question.
 
     Args:
@@ -76,9 +76,15 @@ def search_documents(
         title_contains: Restrict to documents whose title contains this text.
 
     Returns:
-        Passages, best first, each with the citation needed to attribute it.
+        A result carrying the passages *and* an explicit judgement about
+        whether they constitute evidence. Retrieval always returns its best
+        candidates, however poor; without that judgement the caller cannot
+        distinguish "here is the answer" from "here is the least irrelevant
+        paragraph I have", and the second is what ungrounded answers are made
+        from.
     """
     tenant_id = default_tenant_id()
+    settings = get_settings()
     with connect() as conn:
         hits = search(
             conn,
@@ -87,19 +93,58 @@ def search_documents(
             filters=SearchFilters(source=source, title_contains=title_contains),
             options=SearchOptions(limit=limit),
         )
-    return [
-        {
-            "document_id": hit.document_id,
-            "title": hit.title,
-            "location": hit.location,
-            "citation": hit.citation(),
-            "source": hit.source,
-            "score": round(hit.score, 4),
-            "text": hit.text[:MAX_SNIPPET_CHARS],
-            "web_url": hit.web_url,
-        }
-        for hit in hits
-    ]
+        stranded = unsearchable_count(conn, tenant_id) if not hits else 0
+
+    threshold = settings.min_evidence_score
+    best = hits[0].score if hits else None
+    sufficient = best is not None and best >= threshold
+    strong = [h for h in hits if h.score >= threshold]
+
+    if sufficient:
+        guidance = (
+            "Answer using only these passages. Cite the `citation` of every passage "
+            "you rely on. If they cover only part of the question, answer that part "
+            "and say plainly what is not covered."
+        )
+    elif hits:
+        guidance = (
+            f"NOT ENOUGH EVIDENCE. The best passage scored {best:.2f}, below the "
+            f"{threshold:.2f} floor, so these are the least irrelevant passages rather "
+            "than an answer. Do not answer from them and do not answer from your own "
+            "knowledge. Tell the user the documents do not cover this, and offer to "
+            "rephrase or to check another source."
+        )
+    else:
+        guidance = (
+            "No passages matched. Tell the user nothing in the indexed documents "
+            "covers this question."
+        )
+        if stranded:
+            guidance += (
+                f" Note: {stranded} documents are indexed under a different embedding "
+                "model and are currently unsearchable."
+            )
+
+    return {
+        "sufficient_evidence": sufficient,
+        "best_score": round(best, 4) if best is not None else None,
+        "evidence_threshold": threshold,
+        "guidance": guidance,
+        "passages": [
+            {
+                "document_id": hit.document_id,
+                "title": hit.title,
+                "location": hit.location,
+                "citation": hit.citation(),
+                "source": hit.source,
+                "score": round(hit.score, 4),
+                "meets_threshold": hit.score >= threshold,
+                "text": hit.text[:MAX_SNIPPET_CHARS],
+                "web_url": hit.web_url,
+            }
+            for hit in (strong if sufficient else hits)
+        ],
+    }
 
 
 def fetch_document(

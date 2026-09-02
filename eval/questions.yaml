@@ -35,3 +35,59 @@
 
 - question: What did the avatars evaluation of small people find?
   expect_document: SMALL_PERSON
+# --- Atmata / Mido ---------------------------------------------------------
+
+- question: What is the automation hardship score for oil and gas tenders?
+  expect_document: ClickUp_Project_Context
+  expect_text: "27.2"
+
+# The tightest case in the set: it scored 0.3041 against a 0.30 floor, i.e. a
+# legitimate question one hundredth of a point from being refused. Kept here
+# deliberately, because it is what makes the reported margin honest.
+- question: What commercial structure was recommended for Mido?
+  expect_document: ClickUp_Project_Context
+
+- question: Which sector should the RFQ MVP focus on first?
+  expect_document: ClickUp_Project_Context
+
+- question: What was agreed in the discovery meeting with Mido about procurement?
+  expect_document: Meeting_Minutes
+
+# Currently FAILS, deliberately kept. The right document is retrieved at rank
+# 1, but it scores 0.24 -- under the 0.30 evidence floor -- so the assistant
+# declines to answer rather than answering from weak evidence.
+#
+# This is not a language problem. The English form of the same question scores
+# 0.175, *lower* than the Arabic. The job post is a bullet list of conditions,
+# and the reranker does not strongly match "what are the requirements" to it.
+# Absolute scores are not uniformly calibrated across question shapes.
+#
+# Left failing on purpose: for an assistant that must answer only from recorded
+# data, refusing a question it could have answered is a far cheaper error than
+# answering one it could not. This case is the visible price of that choice,
+# and hiding it would make the threshold look better than it is.
+- question: ما هي شروط وظيفة أخصائي المناقصات؟
+  expect_document: ATMATA_Tender_Specialist
+
+
+# --- Questions the documents must NOT answer ------------------------------
+#
+# An assistant that answers only from recorded data has to refuse as reliably
+# as it retrieves. Retrieval always returns *something*, so without these cases
+# the abstention threshold is unmeasured and a confident wrong answer looks
+# exactly like a correct one.
+
+- question: How many employees does Toyota have in Japan?
+  expect_no_answer: true
+
+- question: What did we decide about the Berlin office lease?
+  expect_no_answer: true
+
+- question: What is our AWS root account password?
+  expect_no_answer: true
+
+- question: What is the refund policy for our mobile app subscription?
+  expect_no_answer: true
+
+- question: ما هو موعد اجتماع مجلس الإدارة القادم؟
+  expect_no_answer: true

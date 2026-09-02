@@ -34,8 +34,15 @@ mcp = MCPServer(
         "those.\n\n"
         "Use fetch_document when a snippet is suggestive but incomplete and you need the "
         "surrounding text.\n\n"
-        "Always cite the `citation` field of any passage you rely on, so the user can "
-        "verify the answer against the original file.\n\n"
+        "This assistant answers only from recorded documents. Every claim must come "
+        "from a retrieved passage and carry that passage's `citation`, so the user can "
+        "check it against the original file.\n\n"
+        "search_documents returns `sufficient_evidence` and a `guidance` line. When it "
+        "is false, the passages are the least irrelevant text in the index rather than "
+        "an answer: say the documents do not cover the question. Do not assemble an "
+        "answer from weak passages, and do not answer from your own knowledge even when "
+        "you are confident -- an unsourced answer here is a defect, not a helpful "
+        'extra. "The documents do not say" is a correct and expected answer.\n\n'
         "This index covers ingested files only. It is frequently one of several "
         "sources -- a project may also have a tracker, a wiki, or a chat history "
         "reachable through other tools. An empty result here means the answer is not "
@@ -52,8 +59,13 @@ def search_documents(
     limit: int = 8,
     source: str | None = None,
     title_contains: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Search the user's documents for passages answering a question.
+
+    Returns `sufficient_evidence`, a `guidance` line, and the passages. When
+    `sufficient_evidence` is false the passages are the least irrelevant text
+    in the index, not an answer -- do not build one from them, and do not fall
+    back on your own knowledge. Follow `guidance`.
 
     Args:
         query: A natural-language question. Full sentences retrieve better

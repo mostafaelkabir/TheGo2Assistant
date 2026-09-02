@@ -282,10 +282,17 @@ def evaluate(
     outcomes = run_all(cases, limit=limit)
     for outcome in outcomes:
         mark = "PASS" if outcome.passed else "FAIL"
-        rank = f"@{outcome.rank}" if outcome.rank else "--"
-        typer.echo(f"{mark} {rank:>3}  {outcome.case.question}")
+        if outcome.case.expect_no_answer:
+            marker = "refuse" if not outcome.sufficient else "ANSWERED"
+            typer.echo(f"{mark} {marker:>8}  {outcome.case.question}")
+        else:
+            rank = f"@{outcome.rank}" if outcome.rank else "--"
+            typer.echo(f"{mark} {rank:>8}  {outcome.case.question}")
         if not outcome.passed or verbose:
-            typer.echo(f"          expected: {outcome.case.expect_document}")
+            if outcome.case.expect_no_answer:
+                typer.echo(f"          expected: no answer (score {outcome.top_score:.2f})")
+            else:
+                typer.echo(f"          expected: {outcome.case.expect_document}")
             typer.echo(f"          returned: {', '.join(outcome.returned[:4]) or '(nothing)'}")
             if outcome.case.expect_text and not outcome.text_found:
                 typer.echo(f"          missing text: {outcome.case.expect_text!r}")
@@ -296,6 +303,19 @@ def evaluate(
         f"  |  {stats['top1']} at rank 1"
         f"  |  MRR {stats['mrr']:.2f}"
     )
+    if stats["refusals"]:
+        margin = stats["min_accepted"] - stats["max_refused"]
+        typer.echo(
+            f"refusals: {stats['refused_correctly']}/{stats['refusals']} correct"
+            f"  |  weakest accepted {stats['min_accepted']:.2f}"
+            f"  |  strongest refused {stats['max_refused']:.2f}"
+            f"  |  margin {margin:+.2f}"
+        )
+        if margin <= 0:
+            typer.echo(
+                "  warning: the bands overlap — no single threshold separates "
+                "answerable from unanswerable on these cases."
+            )
     if stats["passed"] < stats["total"]:
         raise typer.Exit(code=1)
 
