@@ -19,6 +19,7 @@ from sqlalchemy import text
 from go2.config import get_settings
 from go2.observability import Trace
 from go2.rag.retrieval import SearchFilters, SearchOptions, search
+from go2.security.guard import screen_tool_output
 from go2.storage.db import connect, default_tenant_id
 
 if TYPE_CHECKING:
@@ -134,6 +135,9 @@ def search_documents(
     trace.meta = {"threshold": threshold, "best_score": best, "returned": len(hits)}
     trace.save(tenant_id=tenant_id)
 
+    returned = strong if sufficient else hits
+    snippets = screen_tool_output([hit.text[:MAX_SNIPPET_CHARS] for hit in returned])
+
     return {
         "sufficient_evidence": sufficient,
         "best_score": round(best, 4) if best is not None else None,
@@ -148,10 +152,10 @@ def search_documents(
                 "source": hit.source,
                 "score": round(hit.score, 4),
                 "meets_threshold": hit.score >= threshold,
-                "text": hit.text[:MAX_SNIPPET_CHARS],
+                "text": snippet,
                 "web_url": hit.web_url,
             }
-            for hit in (strong if sufficient else hits)
+            for hit, snippet in zip(returned, snippets, strict=True)
         ],
     }
 
@@ -191,7 +195,7 @@ def fetch_document(
             {"d": document_id, "t": tenant_id, **({"page": page} if page is not None else {})},
         ).all()
 
-    body = "\n\n".join(r.text for r in rows)
+    body = screen_tool_output(["\n\n".join(r.text for r in rows)])[0]
     return {
         "document_id": str(meta.id),
         "title": meta.title,

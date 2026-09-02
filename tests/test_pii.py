@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from go2.config import get_settings
-from go2.security.guard import PiiBlockedError, screen
+from go2.security.guard import PiiBlockedError, screen, screen_tool_output
 from go2.security.pii import PiiKind, detect, redact, summarise
 
 if TYPE_CHECKING:
@@ -184,3 +184,51 @@ class TestCardVersusPhone:
 
     def test_a_bare_ten_digit_identifier_is_neither(self) -> None:
         assert detect("record 1234567890 in the table") == []
+
+
+class TestToolOutputBoundary:
+    """The tool-output redaction setting, which previously did nothing.
+
+    ``pii_redact_tool_output`` was defined in config and documented in
+    .env.example but read nowhere, so an operator who switched it on to avoid
+    exposing a third party's PII still sent that PII to the MCP client. A
+    control that is off while reporting itself on is worse than no control.
+    """
+
+    def test_off_by_default_the_text_is_untouched(self) -> None:
+        get_settings.cache_clear()
+        assert screen_tool_output(["call ops@acme.example"]) == ["call ops@acme.example"]
+
+    def test_when_enabled_the_text_is_masked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GO2_PII_REDACT_TOOL_OUTPUT", "true")
+        get_settings.cache_clear()
+        try:
+            out = screen_tool_output(["call ops@acme.example"])
+        finally:
+            get_settings.cache_clear()
+        assert "ops@acme.example" not in out[0]
+
+    def test_every_passage_is_screened_not_only_the_first(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GO2_PII_REDACT_TOOL_OUTPUT", "true")
+        get_settings.cache_clear()
+        try:
+            out = screen_tool_output(["a@x.example", "b@y.example", "c@z.example"])
+        finally:
+            get_settings.cache_clear()
+        assert not any("@" in text for text in out)
+
+    def test_the_setting_is_independent_of_the_provider_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # pii_policy governs what a third-party embedding provider receives;
+        # this governs what the person asking receives. Different departures.
+        monkeypatch.setenv("GO2_PII_POLICY", "allow")
+        monkeypatch.setenv("GO2_PII_REDACT_TOOL_OUTPUT", "true")
+        get_settings.cache_clear()
+        try:
+            out = screen_tool_output(["call ops@acme.example"])
+        finally:
+            get_settings.cache_clear()
+        assert "ops@acme.example" not in out[0]

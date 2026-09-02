@@ -82,3 +82,29 @@ def screen(texts: Sequence[str]) -> Screened:
         for kind, number in summarise(findings).items():
             totals[kind] = totals.get(kind, 0) + number
     return Screened(texts=cleaned, counts=totals)
+
+
+def screen_tool_output(texts: Sequence[str]) -> list[str]:
+    """Apply the tool-output redaction setting to passages leaving as an answer.
+
+    A second boundary is needed because this one guards a different departure
+    with a different default. ``screen`` governs text sent to an embedding or
+    reranking provider, where the question is whether a third party should hold
+    your documents. This governs text returned through the MCP tools, where the
+    reader is whoever asked -- normally the data's owner, for whom masking their
+    own address out of their own contract helps nobody.
+
+    So it is off by default and honoured here rather than at the call sites:
+    an operator running the assistant on someone else's behalf sets
+    ``GO2_PII_REDACT_TOOL_OUTPUT=true`` once, and every tool that returns
+    document text obeys it.
+
+    Args:
+        texts: Passage or document text about to be returned.
+
+    Returns:
+        The texts as they should be returned, masked only when enabled.
+    """
+    if not get_settings().pii_redact_tool_output:
+        return list(texts)
+    return [redact(text)[0] for text in texts]
