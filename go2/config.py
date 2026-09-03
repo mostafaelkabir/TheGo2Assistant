@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local", "jina"] = "local"
     rerank_provider: Literal["local", "jina"] = "local"
 
+    # What happens to sensitive values before text leaves the machine.
+    #   redact — mask them, send the rest (default)
+    #   block  — refuse to send content containing PII to an external provider
+    #   allow  — send as-is, an explicit opt-out
+    # Only meaningful when a provider is not "local"; nothing leaves under local.
+    pii_policy: Literal["redact", "block", "allow"] = "redact"
+    # Redaction also applied to passages returned through the MCP tools. Off by
+    # default: those answer a question you asked about your own documents, and
+    # masking your own address out of your own contract helps nobody. Turn it on
+    # when the assistant is answering for someone other than the data's owner.
+    pii_redact_tool_output: bool = False
+
     jina_api_key: SecretStr = SecretStr("")
     jina_embedding_model: str = "jina-embeddings-v5-text-small"  # 1024 dims, matches the column
     jina_rerank_model: str = "jina-reranker-v3.5"
@@ -83,12 +95,36 @@ class Settings(BaseSettings):
     # search latency, and cost is linear in candidates x characters, so these
     # two settings are the whole latency budget. Recall is already handled by
     # fusing two retrievers; the reranker only has to order what they found.
-    rerank_candidates: int = Field(default=15, ge=1, le=200)
+    # Sized against what fusion actually produces. Once the full-text half was
+    # working, fusion returned ~99 candidates rather than ~50, and a 15-wide
+    # window let correct documents fall outside it: eval went 16/17 -> 13/17 on
+    # the same corpus. At 50 it recovers to 15/17 with the widest threshold
+    # margin measured (+0.16).
+    #
+    # Nearly free against a hosted reranker, which scores the whole batch in one
+    # request. A local cross-encoder pays per candidate, so on
+    # GO2_RERANK_PROVIDER=local this is worth lowering.
+    rerank_candidates: int = Field(default=50, ge=1, le=200)
     # Characters of each passage shown to the cross-encoder. Measured cost is
     # ~0.2 ms/char/passage, so this is the single biggest latency lever.
     # Truncation applies only to the relevance judgement -- the full text is
     # still what gets returned and read.
     rerank_max_chars: int = Field(default=512, ge=64, le=8000)
+    # Below this reranker score, retrieved passages are treated as no evidence
+    # at all. Measured on a real corpus: questions the documents answer score
+    # 0.48-0.63, questions they do not score -0.11 to 0.19. The gap is wide,
+    # and this sits inside it. Without a floor, a question about something the
+    # corpus has never heard of still returns the least-irrelevant paragraph,
+    # which is exactly the material an ungrounded answer is built from.
+    #
+    # This is a safety dial, not a tuned constant. Raise it and the assistant
+    # refuses more questions it could have answered; lower it and it answers
+    # more from weak evidence. For a system whose whole claim is that it
+    # answers only from recorded data, over-refusing is the cheap error and
+    # over-answering is the expensive one, so it errs high. `go2 evaluate`
+    # reports the margin between the weakest accepted and strongest refused
+    # case, which is how to move it with evidence rather than by feel.
+    min_evidence_score: float = Field(default=0.30)
 
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")

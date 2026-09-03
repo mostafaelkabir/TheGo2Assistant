@@ -250,3 +250,46 @@ class TestRateLimitRetry:
         with pytest.raises(jina.JinaError, match="invalid key"):
             jina.embed(["a"], task="retrieval.passage", client=_client(handler))
         assert calls == 1  # a bad key will not fix itself
+
+
+class TestEgressRedaction:
+    """What actually goes over the wire."""
+
+    def test_pii_is_masked_in_the_request_body(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The end the whole control exists for: assert on the bytes sent, not
+        # on the helper that was supposed to have been called.
+        monkeypatch.setenv("GO2_PII_POLICY", "redact")
+        monkeypatch.setenv("GO2_JINA_API_KEY", "test-key")
+        get_settings.cache_clear()
+        sent: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.update(json.loads(request.content))
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.0] * DIM}]})
+
+        card = "4111 1111 1111 1111"
+        jina.embed([f"pay with {card}"], task="retrieval.passage", client=_client(handler))
+
+        body = json.dumps(sent)
+        assert card not in body
+        assert "[CREDIT_CARD]" in body
+
+    def test_rerank_screens_both_query_and_passages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GO2_PII_POLICY", "redact")
+        monkeypatch.setenv("GO2_JINA_API_KEY", "test-key")
+        get_settings.cache_clear()
+        sent: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.update(json.loads(request.content))
+            return httpx.Response(200, json={"results": []})
+
+        jina.rerank(
+            "is my card 4111 1111 1111 1111 charged?",
+            ["mail priya@example.com about it"],
+            limit=3,
+            client=_client(handler),
+        )
+        body = json.dumps(sent)
+        assert "4111" not in body
+        assert "priya@example.com" not in body

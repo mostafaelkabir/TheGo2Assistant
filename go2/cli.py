@@ -7,7 +7,7 @@ import logging
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from sqlalchemy import text
@@ -18,9 +18,13 @@ from go2.evaluation import EvalFileError, load_cases, run_all, summarise
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
 from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
+from go2.observability import Trace
+from go2.observability import recent as recent_traces
 from go2.rag.retrieval import SearchFilters, SearchOptions
 from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
+from go2.security.pii import redact as redact_pii
+from go2.security.scan import scan_files
 from go2.storage import repository as repo
 from go2.storage.db import connect, default_tenant_id
 from go2.storage.db import migrate as run_migrations
@@ -176,14 +180,22 @@ def search(
     client attached.
     """
     tenant_id = default_tenant_id()
+    recorder = Trace(kind="search", label=query)
+    started = time.perf_counter()
     with connect() as conn:
         hits = run_search(
             conn,
             tenant_id=tenant_id,
             query=query,
             filters=SearchFilters(source=source or None),
-            options=SearchOptions(limit=limit, rerank=not no_rerank),
+            options=SearchOptions(limit=limit, rerank=not no_rerank, trace=recorder),
         )
+    threshold = get_settings().min_evidence_score
+    best = hits[0].score if hits else None
+    recorder.duration_ms = (time.perf_counter() - started) * 1000
+    recorder.outcome = "answered" if best is not None and best >= threshold else "refused"
+    recorder.meta = {"threshold": threshold, "best_score": best, "returned": len(hits)}
+    recorder.save(tenant_id=tenant_id)
 
     if not hits:
         with connect() as conn:
@@ -207,6 +219,47 @@ def search(
         snippet = " ".join(hit.text.split())[:220]
         typer.echo(f"\n{rank}. {hit.citation()}   [{hit.score:.3f}]")
         typer.echo(f"   {snippet}...")
+
+
+@app.command()
+def scan(
+    paths: Annotated[list[Path], typer.Argument(help="Files or directories to scan.")],
+    *,
+    show: Annotated[
+        bool, typer.Option("--show", help="Print a redacted excerpt around each finding.")
+    ] = False,
+) -> None:
+    """Report sensitive values in files, without ingesting anything.
+
+    Run this before pointing a connector at a new source. It reads locally and
+    sends nothing anywhere, so it is safe on material you have not decided to
+    index yet.
+    """
+    files = _collect(paths, recursive=True)
+    if not files:
+        typer.echo("nothing to scan")
+        raise typer.Exit(code=1)
+
+    report = scan_files(files)
+
+    for entry in report.files:
+        detail = ", ".join(f"{n} {k}" for k, n in sorted(entry.counts.items()))
+        typer.echo(f"{entry.path.name}  ({detail})")
+        if show:
+            for finding in entry.findings[:3]:
+                excerpt = entry.body[max(0, finding.start - 40) : finding.end + 20]
+                masked, _ = redact_pii(" ".join(excerpt.split()))
+                typer.echo(f"    …{masked}…")
+
+    settings = get_settings()
+    typer.echo(f"\n{len(report.files)} of {report.scanned} files contain sensitive values")
+    for kind, number in sorted(report.totals.items(), key=lambda kv: -kv[1]):
+        typer.echo(f"  {number:>5}  {kind}")
+    if report.unreadable:
+        typer.echo(f"  {report.unreadable} files could not be read and were not scanned")
+    typer.echo(f"\npolicy: {settings.pii_policy}  |  provider: {settings.embedding_provider}")
+    if settings.embedding_provider == "local":
+        typer.echo("nothing leaves this machine under the local provider.")
 
 
 @app.command()
@@ -239,10 +292,17 @@ def evaluate(
     outcomes = run_all(cases, limit=limit)
     for outcome in outcomes:
         mark = "PASS" if outcome.passed else "FAIL"
-        rank = f"@{outcome.rank}" if outcome.rank else "--"
-        typer.echo(f"{mark} {rank:>3}  {outcome.case.question}")
+        if outcome.case.expect_no_answer:
+            marker = "refuse" if not outcome.sufficient else "ANSWERED"
+            typer.echo(f"{mark} {marker:>8}  {outcome.case.question}")
+        else:
+            rank = f"@{outcome.rank}" if outcome.rank else "--"
+            typer.echo(f"{mark} {rank:>8}  {outcome.case.question}")
         if not outcome.passed or verbose:
-            typer.echo(f"          expected: {outcome.case.expect_document}")
+            if outcome.case.expect_no_answer:
+                typer.echo(f"          expected: no answer (score {outcome.top_score:.2f})")
+            else:
+                typer.echo(f"          expected: {outcome.case.expect_document}")
             typer.echo(f"          returned: {', '.join(outcome.returned[:4]) or '(nothing)'}")
             if outcome.case.expect_text and not outcome.text_found:
                 typer.echo(f"          missing text: {outcome.case.expect_text!r}")
@@ -253,6 +313,19 @@ def evaluate(
         f"  |  {stats['top1']} at rank 1"
         f"  |  MRR {stats['mrr']:.2f}"
     )
+    if stats["refusals"]:
+        margin = stats["min_accepted"] - stats["max_refused"]
+        typer.echo(
+            f"refusals: {stats['refused_correctly']}/{stats['refusals']} correct"
+            f"  |  weakest accepted {stats['min_accepted']:.2f}"
+            f"  |  strongest refused {stats['max_refused']:.2f}"
+            f"  |  margin {margin:+.2f}"
+        )
+        if margin <= 0:
+            typer.echo(
+                "  warning: the bands overlap — no single threshold separates "
+                "answerable from unanswerable on these cases."
+            )
     if stats["passed"] < stats["total"]:
         raise typer.Exit(code=1)
 
@@ -364,6 +437,48 @@ def docs(
 
     total = sum(int(r["chunks"]) for r in rows)
     typer.echo(f"\n{len(rows)} documents, {total} chunks")
+
+
+@app.command()
+def trace(
+    *,
+    last: Annotated[int, typer.Option(help="How many recent requests to show.")] = 3,
+) -> None:
+    """Show what each component did with the data, for recent requests.
+
+    Application logs record that a request arrived and a response left. This
+    records the path between: which component ran, what it received, what it
+    produced, how long it took, and whether it sent anything off the machine.
+    """
+    entries = recent_traces(default_tenant_id(), limit=last)
+    if not entries:
+        typer.echo("no traces recorded yet — run a search first")
+        return
+
+    for entry in entries:
+        stamp = entry["created_at"].strftime("%H:%M:%S")
+        verdict = entry["outcome"] or "?"
+        typer.echo(
+            f"\n{stamp}  {verdict.upper():8}  {entry['duration_ms']:.0f} ms   {entry['label'][:58]}"
+        )
+        total = max(entry["duration_ms"] or 1.0, 1.0)
+        for step in entry["steps"]:
+            share = step["duration_ms"] / total
+            bar = "█" * max(1, round(share * 22))
+            flag = " → LEAVES MACHINE" if step["egress"] else ""
+            typer.echo(
+                f"  {step['component']:<18} {step['duration_ms']:>7.0f} ms "
+                f"{bar:<22} {share * 100:>4.0f}%{flag}"
+            )
+            typer.echo(f"      in  {_facts(step['input'])}")
+            typer.echo(f"      out {_facts(step['output'])}")
+
+
+def _facts(payload: dict[str, Any]) -> str:
+    """Render a step's recorded facts on one line."""
+    if not payload:
+        return "-"
+    return "  ".join(f"{k}={v}" for k, v in payload.items())
 
 
 @app.command()

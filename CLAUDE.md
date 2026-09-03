@@ -47,6 +47,14 @@ These are load-bearing. Changing one is a design decision, not a refactor.
 
 ## Data handling
 
+- **One egress boundary.** Everything leaving the machine goes through
+  `go2.security.guard.screen`. A new call path that reaches a third party
+  without it is a bug, not a shortcut — a control spread across call sites is
+  one the next code path silently bypasses.
+- PII detectors are validated (Luhn, mod-97) rather than pattern-only. Precision
+  over recall: a redactor that fires on ordinary content gets switched off, and
+  a switched-off control protects nothing.
+
 - Alibaba Model Studio, **Singapore endpoint only**. Beijing is a different data
   jurisdiction for company documents.
 - OAuth refresh tokens are Fernet-encrypted at rest. Never log a token or file content.
@@ -61,6 +69,7 @@ go2 worker                          # drain the queue
 go2 jobs                            # what is queued
 go2 search "your question"          # check retrieval from the terminal
 go2 evaluate                        # run eval/questions.yaml, report rank + MRR
+go2 trace                           # what each component did with the last requests
 go2 docs                            # every ingested file
 go2 docs --by-folder                # ...grouped by directory
 go2 status                          # what is indexed, and which model embedded it

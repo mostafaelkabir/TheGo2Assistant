@@ -14,11 +14,12 @@ document actually appears is the measurement.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from go2.config import get_settings
 from go2.rag.retrieval import SearchOptions, search
 from go2.storage.db import connect, default_tenant_id
 
@@ -30,11 +31,29 @@ DEFAULT_LIMIT = 5
 
 @dataclass(frozen=True, slots=True)
 class Case:
-    """One question and what should answer it."""
+    """One question and what should answer it.
+
+    A case with ``expect_no_answer`` asserts the opposite: that the documents
+    do *not* cover the question and the system says so. For an assistant that
+    must answer only from recorded data, refusing correctly is as much a
+    feature as retrieving correctly, and only measuring the positive half
+    leaves the abstention threshold unchecked.
+    """
 
     question: str
-    expect_document: str
+    # Any one of these titles satisfies the case. Real questions often have
+    # more than one right source -- an entry-point document and the runbook it
+    # points at are both correct answers to "how do I run this". Forcing a
+    # single expected title invites tuning the eval until it passes, which is
+    # how an eval quietly stops measuring anything.
+    expect_documents: list[str] = field(default_factory=list)
     expect_text: str | None = None
+    expect_no_answer: bool = False
+
+    @property
+    def expect_document(self) -> str:
+        """The first acceptable title, for reporting."""
+        return " or ".join(self.expect_documents) if self.expect_documents else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +66,20 @@ class Outcome:
     top_score: float
     text_found: bool
     returned: list[str]
+    sufficient: bool = True
 
     @property
     def passed(self) -> bool:
-        """Whether the expected document came back, and any expected text with it."""
-        return self.rank is not None and (self.expect_text_ok)
+        """Whether the system did what the case expects.
+
+        For an answerable case, retrieving the right document is not enough:
+        the evidence gate must also accept it. Scoring on retrieval alone
+        reports a pass for a question the assistant would actually decline to
+        answer, which is precisely the silent gap this harness exists to close.
+        """
+        if self.case.expect_no_answer:
+            return not self.sufficient
+        return self.rank is not None and self.expect_text_ok and self.sufficient
 
     @property
     def expect_text_ok(self) -> bool:
@@ -86,14 +114,25 @@ def load_cases(path: Path) -> list[Case]:
 
     cases: list[Case] = []
     for index, raw in enumerate(loaded, start=1):
-        if not isinstance(raw, dict) or "question" not in raw or "expect_document" not in raw:
-            msg = f"case {index} in {path} needs both 'question' and 'expect_document'"
+        if not isinstance(raw, dict) or "question" not in raw:
+            msg = f"case {index} in {path} needs a 'question'"
+            raise EvalFileError(msg)
+        refuses = bool(raw.get("expect_no_answer", False))
+        expected = raw.get("expect_document")
+        titles = (
+            [str(t) for t in expected]
+            if isinstance(expected, list)
+            else ([str(expected)] if expected is not None else [])
+        )
+        if not refuses and not titles:
+            msg = f"case {index} in {path} needs 'expect_document' or 'expect_no_answer'"
             raise EvalFileError(msg)
         cases.append(
             Case(
                 question=str(raw["question"]),
-                expect_document=str(raw["expect_document"]),
+                expect_documents=titles,
                 expect_text=None if raw.get("expect_text") is None else str(raw["expect_text"]),
+                expect_no_answer=refuses,
             )
         )
     return cases
@@ -117,10 +156,13 @@ def run_case(case: Case, *, tenant_id: str, limit: int = DEFAULT_LIMIT) -> Outco
             conn, tenant_id=tenant_id, query=case.question, options=SearchOptions(limit=limit)
         )
 
+    threshold = get_settings().min_evidence_score
+    sufficient = bool(hits) and hits[0].score >= threshold
+
     rank: int | None = None
     text_found = False
     for position, hit in enumerate(hits, start=1):
-        if case.expect_document.lower() in hit.title.lower():
+        if any(t.lower() in hit.title.lower() for t in case.expect_documents):
             if rank is None:
                 rank = position
             if case.expect_text and case.expect_text.lower() in hit.text.lower():
@@ -133,6 +175,7 @@ def run_case(case: Case, *, tenant_id: str, limit: int = DEFAULT_LIMIT) -> Outco
         top_score=hits[0].score if hits else 0.0,
         text_found=text_found,
         returned=[h.title for h in hits],
+        sufficient=sufficient,
     )
 
 
@@ -149,11 +192,19 @@ def summarise(outcomes: list[Outcome]) -> dict[str, Any]:
         Counts plus mean reciprocal rank, which distinguishes "found it first"
         from "found it fourth" -- a distinction plain accuracy hides.
     """
-    passed = [o for o in outcomes if o.passed]
-    reciprocal = [1.0 / o.rank for o in outcomes if o.rank is not None]
+    answerable = [o for o in outcomes if not o.case.expect_no_answer]
+    reciprocal = [1.0 / o.rank for o in answerable if o.rank is not None]
+    refusals = [o for o in outcomes if o.case.expect_no_answer]
     return {
         "total": len(outcomes),
-        "passed": len(passed),
-        "top1": sum(1 for o in outcomes if o.rank == 1),
-        "mrr": (sum(reciprocal) / len(outcomes)) if outcomes else 0.0,
+        "passed": sum(1 for o in outcomes if o.passed),
+        "top1": sum(1 for o in answerable if o.rank == 1),
+        # MRR is only meaningful over questions that have an answer.
+        "mrr": (sum(reciprocal) / len(answerable)) if answerable else 0.0,
+        "refusals": len(refusals),
+        "refused_correctly": sum(1 for o in refusals if o.passed),
+        # The margin between the weakest accepted answer and the strongest
+        # wrongly accepted refusal is how much room the threshold actually has.
+        "min_accepted": min((o.top_score for o in answerable if o.passed), default=0.0),
+        "max_refused": max((o.top_score for o in refusals), default=0.0),
     }

@@ -76,6 +76,8 @@ flowchart LR
 
 **Spreadsheets are never chunked as prose.** Each sheet is kept whole. Prose-chunking a budget destroys exactly the numbers the question is about.
 
+**Nothing leaves the machine unscreened.** With a hosted provider, every chunk of every document is sent at ingest — a far larger surface than a chat message. One egress boundary screens all of it, masking card numbers, IBANs, API keys, national IDs, emails and phones. Detection is checksum-validated, so a sixteen-digit run identifier is not mistaken for a card. `go2 scan` reports what a folder contains before you index it.
+
 **Vectors carry their provenance.** Embeddings from different models are not comparable, and mixing them fails silently — confident nonsense rather than an error. Each document records the model that produced it, and search scopes to the active one.
 
 ---
@@ -89,7 +91,9 @@ flowchart LR
 | `go2 search "..."` | Query from the terminal |
 | `go2 docs` | Every ingested file (`--by-folder` to group) |
 | `go2 status` | What is indexed, and which model embedded it |
+| `go2 scan PATH` | Report sensitive values in files, without ingesting |
 | `go2 evaluate` | Run `eval/questions.yaml`, report rank and MRR |
+| `go2 trace` | Per-component steps of recent requests, with egress marked |
 | `go2 serve` | MCP server on stdio |
 
 ---

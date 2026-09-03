@@ -57,10 +57,23 @@ class TestToolSchemas:
         tool = next(t for t in await mcp.list_tools() if t.name == "list_documents")
         assert not tool.input_schema.get("required")
 
-    def test_the_server_instructs_the_model_to_cite(self) -> None:
-        # Grounded answers are the whole point; losing this instruction would
-        # silently turn cited answers into plausible ones.
-        assert "cite" in (mcp.instructions or "").lower()
+    def test_the_server_requires_grounded_cited_answers(self) -> None:
+        # Grounded answers are the whole point; losing any of these would
+        # silently turn cited answers into plausible ones. Asserted as three
+        # separate properties rather than one keyword, because the wording
+        # will change and the requirements should not.
+        instructions = (mcp.instructions or "").lower()
+        assert "citation" in instructions
+        assert "only from recorded documents" in instructions
+        # Abstention must be described as correct, not merely permitted.
+        assert "correct and expected answer" in instructions
+        assert "do not answer from your own knowledge" in instructions
+
+    def test_the_server_explains_the_evidence_gate(self) -> None:
+        # The gate is useless if the model does not know to read it.
+        instructions = (mcp.instructions or "").lower()
+        assert "sufficient_evidence" in instructions
+        assert "least irrelevant" in instructions
 
 
 @pytest.mark.slow
@@ -103,14 +116,16 @@ class TestToolsAgainstRealData:
 
     @pytest.mark.usefixtures("indexed")
     def test_search_returns_citable_hits(self) -> None:
-        hits = search_documents("How much notice does Globex need?", limit=3)
-        assert hits
-        assert hits[0]["citation"]
-        assert "Globex" in hits[0]["title"]
+        result = search_documents("How much notice does Globex need?", limit=3)
+        assert result["passages"]
+        assert result["passages"][0]["citation"]
+        assert "Globex" in result["passages"][0]["title"]
 
     @pytest.mark.usefixtures("indexed")
     def test_search_can_be_filtered_by_title(self) -> None:
-        assert search_documents("notice", limit=3, title_contains="Nonexistent") == []
+        result = search_documents("notice", limit=3, title_contains="Nonexistent")
+        assert result["passages"] == []
+        assert result["sufficient_evidence"] is False
 
     def test_fetch_returns_the_document_text(self, indexed: str) -> None:
         doc = fetch_document(indexed)
@@ -134,3 +149,11 @@ class TestToolsAgainstRealData:
         docs = list_documents(status="indexed", limit=50)
         assert docs
         assert all(d["status"] == "indexed" for d in docs)
+
+    def test_the_server_admits_it_may_not_be_the_only_source(self) -> None:
+        # Without this, an empty search reads as "not recorded anywhere", and
+        # the model stops instead of checking the tracker or chat history that
+        # sits behind another tool.
+        instructions = (mcp.instructions or "").lower()
+        assert "other sources" in instructions
+        assert "does not mean the answer does not exist" in instructions
