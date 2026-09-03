@@ -1,0 +1,126 @@
+# Retrieval checks for the Dawan workspace — date-palm sorting robotics.
+#
+#   GO2_TENANT=dawan go2 evaluate eval/dawan.yaml
+#
+# `tenant` is a guard, not decoration. These questions ask about specific
+# documents, so running them against another workspace does not error — it
+# returns a plausible, terrible score. The first run of the `local` set against
+# `dawan` scored 5/17 and read like a retrieval regression; it was a set asking
+# about documents this workspace has never held.
+#
+# Every expectation below was read out of the document before it was written
+# here. A case whose answer was guessed measures the guess.
+
+tenant: dawan
+
+cases:
+  # ---------------------------------------------------------------- product
+  - question: What throughput and accuracy does the date sorting prototype achieve?
+    expect_document: Pitch Deck - Sunbulah
+    expect_text: "1 ton/hour"
+
+  - question: Which date cultivar was the working prototype tested with?
+    expect_document: Pitch Deck - Sunbulah
+    expect_text: Sukkari
+
+  - question: How much do conventional sorting machines cost, and why is that a problem for farmers?
+    expect_document: Pitch Deck - Sunbulah
+    expect_text: "500K"
+
+  - question: Where were pilot deployments committed for the 2025 season?
+    expect_document: Pitch Deck - Sunbulah
+    expect_text: Al-Qassim
+
+  # ------------------------------------------------------------- engineering
+  - question: What are the four stages of the dates sorting production line?
+    expect_document: DATES SORTING MACHINE 12-13-2023
+    expect_text: Feed Hopper
+
+  - question: How are dates ejected into their categories on the sorting line?
+    expect_document: DATES SORTING MACHINE 12-13-2023
+    expect_text: air blow
+
+  - question: How many parallel conveyor lines and air blowers does the design use?
+    expect_document: DATES SORTING MACHINE 12-13-2023
+    expect_text: five parallel
+
+  # ---------------------------------------------------------------- supplier
+  # The two CQ-XP1010 quotations are near-identical: same quotation number,
+  # same date, same specifications, differing in level count and price. This
+  # is the case embeddings are worst at and exact search exists for, so it is
+  # deliberately the hardest pair in the set.
+  - question: What is the price of the CQ-XP1010 6-level weighing sorting machine?
+    expect_document: Quotation of CQ-XP1010 6-level
+    expect_text: "6,500"
+
+  - question: What is the price of the CQ-XP1010 8-level weighing sorting machine?
+    expect_document: Quotation of CQ-XP1010 8-level
+    expect_text: "6,880"
+
+  - question: What weighing accuracy does the CQ-XP1010 achieve?
+    expect_document:
+      - Quotation of CQ-XP1010
+      - Details of CQ-XP1010
+    expect_text: "0.05"
+
+  - question: Which company quoted the checkweigher machines?
+    expect_document:
+      - Quotation of CQ-XP1010
+      - Details of CQ-XP1010
+    expect_text: Chaoqiang
+
+  # -------------------------------------------------------------- commercial
+  - question: What was the budget for milestone 2 of the automatic date sorting machine project?
+    expect_document: Automatic date sorting machine proposal phase 2
+    expect_text: "27650"
+
+  - question: Which engineering firm proposed building the sorting machine prototype?
+    expect_document: Automatic date sorting machine proposal phase 2
+    expect_text: Originex
+
+  # ------------------------------------------------------------------ domain
+  - question: How much of global date production comes from the Arabian Peninsula?
+    expect_document: HARVESTING AND POSTHARVEST HANDLING OF DATES
+    expect_text: "29%"
+
+  # ------------------------------------------------------- cross-language
+  # An Arabic question against an Arabic document. Retrieval is bilingual in
+  # principle; this is where that stops being an assumption.
+  - question: ما هو الهدف من النموذج الأولي للمنتج؟
+    expect_document: النموذج الأولي للمنتج
+
+  # An Arabic question whose answer lives in English documents. This is the
+  # harder direction and the one most likely to regress unnoticed.
+  #
+  # Corrected after a failing run. The case originally named only the pitch
+  # deck; retrieval returned Size Accuracy Report, which is a measured
+  # size-classification report from the 2023 Sukkari season and is the better
+  # answer -- the deck's "90%+" is a marketing claim, the report has the error
+  # metrics. Retrieval was right where the case was wrong, which is the normal
+  # way these get written.
+  #
+  # KNOWN FAILING — tracks the cross-language gap, not a regression. Retrieval
+  # ranks Size Accuracy Report first and is correct; the evidence gate then
+  # refuses it at 0.281, under the 0.30 floor, so the assistant declines a
+  # question it can answer. Left in deliberately: deleting it would make the
+  # suite green and the limitation invisible.
+  - question: ما هي دقة فرز التمور التي حققها النموذج الأولي؟
+    expect_document:
+      - Size Accuracy Report
+      - Pitch Deck - Sunbulah
+
+  # ---------------------------------------------------------------- refusals
+  # Refusing correctly is as much a feature as retrieving correctly. The first
+  # two also assert workspace isolation: both are answerable in `local`, and
+  # must not be answerable here.
+  - question: What commercial structure was recommended for Mido?
+    expect_no_answer: true
+
+  - question: What did the small person benchmark find across models?
+    expect_no_answer: true
+
+  - question: What is our AWS root account password?
+    expect_no_answer: true
+
+  - question: How many employees does Toyota have in Japan?
+    expect_no_answer: true

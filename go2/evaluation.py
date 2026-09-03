@@ -14,6 +14,7 @@ document actually appears is the measurement.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -88,18 +89,52 @@ class Outcome:
         return self.case.expect_text is None or self.text_found
 
 
+class TenantMismatchError(ValueError):
+    """Raised when a question set is run against the wrong workspace."""
+
+    def __init__(self, wanted: str, active: str) -> None:
+        """Name both workspaces and the command that fixes it."""
+        super().__init__(
+            f"this question set was written for the {wanted!r} workspace, but "
+            f"{active!r} is active. Its questions ask about documents {active!r} "
+            f"may not hold, so the score would be meaningless rather than bad. "
+            f"Run `GO2_TENANT={wanted} go2 evaluate ...`, or remove the `tenant:` "
+            f"key to run it anywhere."
+        )
+
+
 class EvalFileError(ValueError):
     """Raised when the eval file cannot be used."""
 
 
-def load_cases(path: Path) -> list[Case]:
-    """Read cases from a YAML file.
+@dataclass(frozen=True, slots=True)
+class Suite:
+    """A question set, and the workspace it was written against.
+
+    ``tenant`` exists because the failure it prevents is silent. The questions
+    ask about specific documents, so running a set against the wrong workspace
+    does not error -- it returns a plausible, terrible score. The first run of
+    the original set against `dawan` scored 5/17 and looked like a retrieval
+    regression; it was a set asking about documents that workspace has never
+    held. A number that wrong is more dangerous than a crash.
+    """
+
+    cases: list[Case]
+    tenant: str | None = None
+
+
+def load_cases(path: Path) -> Suite:
+    """Read a question set from a YAML file.
+
+    Accepts either a bare list of cases, or a mapping with ``tenant`` and
+    ``cases`` keys. The bare list stays valid because a set that does not name
+    a workspace is not wrong, only unguarded.
 
     Args:
-        path: File containing a list of ``{question, expect_document}`` maps.
+        path: File containing the cases.
 
     Returns:
-        The parsed cases.
+        The parsed suite.
 
     Raises:
         EvalFileError: If the file is missing, malformed, or has no cases.
@@ -109,6 +144,10 @@ def load_cases(path: Path) -> list[Case]:
         raise EvalFileError(msg)
 
     loaded: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
+    tenant: str | None = None
+    if isinstance(loaded, dict):
+        tenant = None if loaded.get("tenant") is None else str(loaded["tenant"])
+        loaded = loaded.get("cases")
     if not isinstance(loaded, list) or not loaded:
         msg = f"{path} should contain a non-empty list of cases"
         raise EvalFileError(msg)
@@ -136,7 +175,12 @@ def load_cases(path: Path) -> list[Case]:
                 expect_no_answer=refuses,
             )
         )
-    return cases
+    return Suite(cases=cases, tenant=tenant)
+
+
+def _canon(value: str) -> str:
+    """Casefold and Unicode-normalise, so an Arabic title matches what it names."""
+    return unicodedata.normalize("NFC", value).casefold()
 
 
 def run_case(case: Case, *, tenant_id: str, limit: int = DEFAULT_LIMIT) -> Outcome:
@@ -163,7 +207,7 @@ def run_case(case: Case, *, tenant_id: str, limit: int = DEFAULT_LIMIT) -> Outco
     rank: int | None = None
     text_found = False
     for position, hit in enumerate(hits, start=1):
-        if any(t.lower() in hit.title.lower() for t in case.expect_documents):
+        if any(_canon(t) in _canon(hit.title) for t in case.expect_documents):
             if rank is None:
                 rank = position
             if case.expect_text and case.expect_text.lower() in hit.text.lower():
