@@ -1,8 +1,6 @@
 # Go2Assistant
 
-Ask questions about your own documents and get answers with citations back to the exact page or section.
-
-Point it at a folder, Google Drive, or OneDrive. It parses, indexes, and serves the result to any MCP client — so Claude Code becomes the interface and there is no UI to build.
+Ask questions about your own documents and get answers with citations back to the exact page or section — or a straight *"the documents do not say"* when the evidence is not there.
 
 ```bash
 go2 ingest ~/Documents/work
@@ -14,6 +12,8 @@ go2 search "how much did we agree to pay Acme?"
    The annual renewal fee is 4,500 USD, payable each March...
 ```
 
+Retrieval is exposed as MCP tools, so Claude Code — or any chat UI — becomes the interface.
+
 ---
 
 ## Components
@@ -22,15 +22,15 @@ go2 search "how much did we agree to pay Acme?"
 flowchart LR
     subgraph SRC["Sources"]
         direction TB
-        F["Local folder"]
-        G["Google Drive"]
-        O["OneDrive"]
+        F["Local folders"]
+        G["Google Drive<br/>in progress"]
+        O["OneDrive<br/>planned"]
     end
 
-    subgraph ING["Ingestion — one pipeline for every source"]
+    subgraph ING["Ingestion — one pipeline, every source"]
         direction TB
         X["Extract<br/>pdf · docx · pptx · xlsx · md"]
-        C["Chunk<br/>split on structure"]
+        C["Chunk<br/>never across a page or heading"]
         E["Embed"]
         X --> C --> E
     end
@@ -42,43 +42,55 @@ flowchart LR
         J[("jobs<br/>background queue")]
     end
 
-    subgraph RET["Retrieval — hybrid"]
+    subgraph RET["Retrieval — hybrid, then judged"]
         direction TB
-        V["Vector search"] --> R["RRF fusion"]
-        T["Full-text search"] --> R
-        R --> RK["Rerank"]
+        V["Vector search"]
+        T["Full-text search"]
+        RRF["RRF fusion"]
+        RK["Rerank"]
+        EG{"Evidence<br/>gate"}
+        V --> RRF
+        T --> RRF
+        RRF --> RK --> EG
     end
 
-    subgraph API["Interfaces"]
+    subgraph IFACE["Interfaces"]
         direction TB
         CLI["go2 CLI"]
-        MCP["MCP server<br/>4 tools"]
+        MS["MCP · stdio"]
+        MH["MCP · HTTP"]
     end
 
-    SRC --> ING
-    ING --> STORE
-    STORE --> RET
-    RET --> API
-    API --> U["You / Claude Code"]
+    SRC --> ING --> STORE --> RET --> IFACE
+    CLI --> U["You"]
+    MS --> CC["Claude Code"]
+    MH --> UI["Browser chat UI"]
+
+    style G stroke-dasharray: 4 3
+    style O stroke-dasharray: 4 3
 ```
 
-**Providers sit behind interfaces.** Embedding and reranking run either on-device (Qwen3 + a cross-encoder, nothing leaves the machine) or through the Jina API (roughly 9× faster, and the laptop stays idle). One config line switches them.
+Every row carries a workspace id, and every query filters on it. `go2 tenant` creates isolated workspaces that cannot see each other's documents.
+
+**Providers sit behind interfaces.** Embedding and reranking run on-device (nothing leaves the machine) or through the Jina API (roughly 9× faster, and the laptop stays idle). One config line switches them.
 
 ---
 
-## Design decisions worth knowing
+## How it works
 
-**Agentic search, not single-shot RAG.** Retrieval is exposed as tools and the model drives the loop, so it can rephrase a bad query, page through a document, and combine metadata filters with semantic search. "Which contracts expire this quarter?" is a metadata question no vector search can answer.
+**Agentic search, not single-shot RAG.** Retrieval is three tools and the model drives the loop — rephrasing a bad query, fetching more of a document, filtering on metadata. *"Which contracts expire this quarter?"* is a metadata question no vector search can answer.
 
-**Hybrid search, never vector-only.** Exact identifiers — invoice numbers, client names, filenames — are what embeddings are worst at and what people actually search for. Vector and full-text results are fused by Reciprocal Rank Fusion, then reranked.
+**Hybrid search, never vector-only.** Exact identifiers — invoice numbers, client names — are what embeddings are worst at and what people actually search for. Vector and full-text results are fused by Reciprocal Rank Fusion, then reranked.
 
-**Citations are load-bearing.** Chunks never merge across a page, slide, or heading boundary. A chunk spanning pages 3 and 4 can only be cited as one of them, and a citation pointing at the wrong page is worse than a smaller chunk.
+**An answer must clear a floor.** Below it, passages are reported as *not evidence* rather than dressed up as an answer. Refusing is a feature; a confident wrong answer costs more than no answer.
 
-**Spreadsheets are never chunked as prose.** Each sheet is kept whole. Prose-chunking a budget destroys exactly the numbers the question is about.
+**Citations are load-bearing.** Chunks never merge across a page, slide, or heading. A chunk spanning pages 3 and 4 can only be cited as one of them, and a citation pointing at the wrong page is worse than a smaller chunk.
 
-**Nothing leaves the machine unscreened.** With a hosted provider, every chunk of every document is sent at ingest — a far larger surface than a chat message. One egress boundary screens all of it, masking card numbers, IBANs, API keys, national IDs, emails and phones. Detection is checksum-validated, so a sixteen-digit run identifier is not mistaken for a card. `go2 scan` reports what a folder contains before you index it.
+**Spreadsheets are never chunked as prose.** Each sheet is kept whole — prose-chunking a budget destroys exactly the numbers the question is about.
 
-**Vectors carry their provenance.** Embeddings from different models are not comparable, and mixing them fails silently — confident nonsense rather than an error. Each document records the model that produced it, and search scopes to the active one.
+**Nothing leaves the machine unscreened.** With a hosted provider, every chunk of every document is sent at ingest — far more surface than a chat message. One egress boundary screens all of it. Detection is checksum-validated, so a sixteen-digit run identifier is not mistaken for a card number.
+
+**Vectors carry their provenance.** Embeddings from different models are not comparable, and mixing them fails silently. Each document records the model that produced it, and search scopes to the active one.
 
 ---
 
@@ -86,15 +98,17 @@ flowchart LR
 
 | | |
 |---|---|
-| `go2 ingest PATH` | Index a folder (`--background` to queue it instead) |
+| `go2 ingest PATH` | Index a folder (`--background` to queue it) |
 | `go2 worker` | Drain the ingestion queue |
 | `go2 search "..."` | Query from the terminal |
+| `go2 tenant list` | Workspaces, and what each holds |
 | `go2 docs` | Every ingested file (`--by-folder` to group) |
 | `go2 status` | What is indexed, and which model embedded it |
-| `go2 scan PATH` | Report sensitive values in files, without ingesting |
+| `go2 scan PATH` | Report sensitive values *before* indexing |
 | `go2 evaluate` | Run `eval/questions.yaml`, report rank and MRR |
-| `go2 trace` | Per-component steps of recent requests, with egress marked |
+| `go2 trace` | Per-component steps of recent requests, egress marked |
 | `go2 serve` | MCP server on stdio |
+| `go2 serve --http` | ...over Streamable HTTP, for a chat UI |
 
 ---
 
@@ -107,11 +121,18 @@ uv sync
 uv tool install --editable .          # `go2` from any directory
 cp .env.example ~/.config/go2/.env    # edit, then:
 go2 migrate
+go2 tenant create myworkspace
 ```
 
-Configuration is read from `~/.config/go2/.env`, then a project-local `.env` that overrides it. Running entirely on-device needs no keys at all.
+Config is read from `~/.config/go2/.env`, then a project-local `.env` that overrides it. Running entirely on-device needs no keys.
 
-Add `.mcp.json` to a project and restart Claude Code to ask questions in chat.
+**In Claude Code** — add `.mcp.json` to a project and restart:
+
+```json
+{ "mcpServers": { "go2assistant": { "command": "go2", "args": ["serve"] } } }
+```
+
+**In a browser** — [`deploy/librechat/`](deploy/librechat/) runs LibreChat against `go2 serve --http`, one workspace per port.
 
 ---
 
@@ -125,4 +146,6 @@ go2 evaluate                   # retrieval quality against known answers
 
 `go2 evaluate` is the one that matters over time. Retrieval regressions are silent — the system keeps returning confident-looking passages, just the wrong ones — so every bad answer should become a case in `eval/questions.yaml`.
 
-Architecture rationale and working agreement: [`CLAUDE.md`](CLAUDE.md).
+---
+
+Architecture rationale: [`docs/architecture.md`](docs/architecture.md) · Working agreement: [`CLAUDE.md`](CLAUDE.md)
