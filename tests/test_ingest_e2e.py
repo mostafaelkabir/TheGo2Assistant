@@ -24,8 +24,9 @@ from go2.jobs.ingest import IngestResult, ingest_document
 from go2.rag.embedding import embed_query
 from go2.scope import Scope
 from go2.storage import repository as repo
-from go2.storage.db import connect, default_tenant_id, get_engine
+from go2.storage.db import connect, get_engine
 from go2.storage.repository import vector_literal
+from go2.tenancy import resolve_tenant_id
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -66,7 +67,7 @@ if not _database_available():  # pragma: no cover - environment dependent
 
 @pytest.fixture
 def tenant_id() -> str:
-    return default_tenant_id()
+    return resolve_tenant_id()
 
 
 @pytest.fixture

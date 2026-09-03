@@ -7,14 +7,16 @@ Deliberately thin: each tool delegates straight to ``go2.tools`` and holds no
 logic of its own. That is what lets the same four functions serve this server
 today and an in-process agent loop later without a second implementation.
 
-Run with ``go2 serve`` (stdio transport).
+Run with ``go2 serve`` (stdio) or ``go2 serve --http`` (Streamable HTTP).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import anyio
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from go2.tools.search import fetch_document as _fetch_document
 from go2.tools.search import list_documents as _list_documents
@@ -110,8 +112,56 @@ def list_documents(
 
 
 def main() -> None:
-    """Run the server on stdio."""
+    """Run the server on stdio, for a client that launches it as a subprocess."""
     mcp.run()
+
+
+def transport_security(
+    *, host: str, port: int, allowed_hosts: list[str]
+) -> TransportSecuritySettings:
+    """Host headers this server will answer to.
+
+    Kept separate because getting it wrong fails in a misleading way: DNS
+    rebinding protection returns 400 for an unrecognised Host, which reads as a
+    network fault rather than a policy decision.
+    """
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[f"{host}:{port}", *allowed_hosts],
+        allowed_origins=["*"],
+    )
+
+
+def run_http(*, host: str, port: int, allowed_hosts: list[str]) -> None:
+    """Run the server over Streamable HTTP, for a client that cannot spawn it.
+
+    A containerised chat UI is the case that needs this. Under stdio the client
+    launches ``go2 serve`` itself, which requires the binary, the Python
+    environment and a route to Postgres to exist wherever the client runs --
+    inside its image, not on this machine. Serving over HTTP inverts that: the
+    server stays here with its database, and the client is given an address.
+
+    Args:
+        host: Interface to bind. Defaults to loopback; binding wider exposes
+            the whole index to anything that can reach the port, and there is
+            no authentication in front of it yet.
+        port: Port to bind.
+        allowed_hosts: Host headers to accept, beyond ``host:port`` itself.
+            DNS-rebinding protection rejects unrecognised Host headers, and a
+            container reaching the Mac calls it ``host.docker.internal``, so
+            that name has to be named explicitly or every request 400s.
+    """
+    security = transport_security(host=host, port=port, allowed_hosts=allowed_hosts)
+    anyio.run(
+        lambda: mcp.run_streamable_http_async(
+            host=host,
+            port=port,
+            # Stateless: each request stands alone, so several chat sessions can
+            # use one server without sharing or outliving a session.
+            stateless_http=True,
+            transport_security=security,
+        )
+    )
 
 
 if __name__ == "__main__":

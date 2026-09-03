@@ -1,0 +1,98 @@
+# LibreChat configuration for Go2Assistant.
+#
+# Copy this to the root of a LibreChat checkout as `librechat.yaml`.
+#
+# Each workspace is a separate MCP server on its own port, because a tenant is
+# chosen by the environment of the `go2 serve` process. Two processes, two
+# ports, two entries here -- and the isolation is the same one the test suite
+# covers, not a second mechanism invented for the UI.
+
+version: 1.3.14
+cache: true
+
+# LibreChat blocks internal targets as SSRF by default, and host.docker.internal
+# is blocked specifically because it ends in .internal -- which is a sensible
+# default, not an obstacle to route around. `allowedAddresses` is the narrow
+# exemption: it names two host:port pairs and leaves the protection on for
+# everything else. `allowedDomains` would be the wrong instrument here; setting
+# it makes it authoritative and turns the whole thing into a strict whitelist.
+#
+# Read once when the registry is built, so changing it needs a full restart of
+# the container, not a config reload.
+mcpSettings:
+  allowedAddresses:
+    - "host.docker.internal:8765"
+    - "host.docker.internal:8766"
+
+mcpServers:
+  dawan:
+    type: streamable-http
+    url: http://host.docker.internal:8765/mcp
+    timeout: 120000
+    initTimeout: 20000
+    # Injects the server's own instructions -- the abstention rule, the
+    # citation requirement, the "documents do not say" guidance -- into the
+    # agent's context. Without this the model gets three tools and none of the
+    # discipline that makes their output trustworthy, which is most of the
+    # point of this system.
+    serverInstructions: true
+
+  # Named for the tenant it actually serves, not the project you might hope it
+  # serves. `local` still holds HaramBlur, Atmata and a few test documents
+  # together; calling this entry `atmata` would promise an isolation that does
+  # not exist yet, and the label is the only thing a person sees when choosing
+  # a workspace in the UI. Rename it once `local` is split.
+  local:
+    type: streamable-http
+    url: http://host.docker.internal:8766/mcp
+    timeout: 120000
+    initTimeout: 20000
+    serverInstructions: true
+
+endpoints:
+  custom:
+    # Alibaba Model Studio, Singapore. Beijing is a different data jurisdiction
+    # for company documents, and an API key is bound to the region that issued
+    # it -- a Singapore base URL with a Beijing key fails rather than silently
+    # routing elsewhere, which is the failure mode you want here.
+    - name: "Qwen (Alibaba, Singapore)"
+      apiKey: "${ALIBABA_API_KEY}"
+      baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      models:
+        default:
+          # qwen3-max first: the agent loop is the part model quality decides,
+          # and this is the strongest of these at tool-calling and at honouring
+          # the refusal instruction.
+          - qwen3-max
+          - qwen-max
+          - qwen-plus-latest
+          - qwen-flash
+        fetch: false
+      titleConvo: true
+      # Free quota is per-model, and `qwen-plus` and `qwen-turbo` are already
+      # exhausted on this account -- they return 403 AllocationQuota.FreeTierOnly
+      # while the models above still work. Naming an exhausted model here breaks
+      # conversation titles only, which is a confusing way to find out.
+      titleModel: qwen-flash
+      modelDisplayLabel: Qwen
+
+    # Already running on this machine, so it needs no key and sends nothing
+    # anywhere. Use it to prove the wiring end to end -- tools discovered,
+    # tenant correct, citations rendered -- while waiting on a Model Studio key.
+    #
+    # Not a substitute for one. This design leans on the model to drive a tool
+    # loop and to refuse when `sufficient_evidence` is false, and a 3B model is
+    # weak at exactly that: it will skip tools, or answer from its own weights
+    # and ignore the abstention rule. A wrong answer from llama3.2 here is a
+    # model limitation, not a retrieval bug -- check `go2 search` before
+    # concluding anything is broken.
+    - name: "Ollama (local)"
+      apiKey: "ollama"
+      baseURL: "http://host.docker.internal:11434/v1"
+      models:
+        default:
+          - llama3.2:latest
+        fetch: false
+      titleConvo: true
+      titleModel: llama3.2:latest
+      modelDisplayLabel: Ollama

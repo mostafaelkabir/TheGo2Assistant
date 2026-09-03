@@ -17,10 +17,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.jobs.ingest import ingest_document
-from go2.mcp_server import mcp
+from go2.mcp_server import mcp, transport_security
 from go2.scope import Scope
 from go2.storage import repository as repo
-from go2.storage.db import connect, default_tenant_id
+from go2.storage.db import connect
+from go2.tenancy import resolve_tenant_id
 from go2.tools.search import fetch_document, list_documents, search_documents
 
 if TYPE_CHECKING:
@@ -86,7 +87,7 @@ class TestToolsAgainstRealData:
         if not _database_available():  # pragma: no cover - environment dependent
             pytest.skip("no database reachable")
 
-        tenant_id = default_tenant_id()
+        tenant_id = resolve_tenant_id()
         external_id = f"mcp-{uuid.uuid4()}"
         body = (
             "GLOBEX SUPPLY CONTRACT. Invoice INV-2026-0918. Globex requires "
@@ -157,3 +158,31 @@ class TestToolsAgainstRealData:
         instructions = (mcp.instructions or "").lower()
         assert "other sources" in instructions
         assert "does not mean the answer does not exist" in instructions
+
+
+class TestHttpTransport:
+    """Serving over HTTP, for a client that cannot spawn the process itself."""
+
+    def test_the_bind_address_is_always_accepted(self) -> None:
+        settings = transport_security(host="127.0.0.1", port=8765, allowed_hosts=[])
+        assert "127.0.0.1:8765" in (settings.allowed_hosts or [])
+
+    def test_extra_hosts_are_added_not_substituted(self) -> None:
+        # A container reaches the host as host.docker.internal. Replacing the
+        # bind address instead of adding to it would break local access.
+        settings = transport_security(
+            host="127.0.0.1", port=8765, allowed_hosts=["host.docker.internal:8765"]
+        )
+        allowed = settings.allowed_hosts or []
+        assert "127.0.0.1:8765" in allowed
+        assert "host.docker.internal:8765" in allowed
+
+    def test_rebinding_protection_stays_on(self) -> None:
+        # The easy way to "fix" a 400 is to switch this off, which turns any
+        # page the browser visits into a client of this server.
+        settings = transport_security(host="127.0.0.1", port=8765, allowed_hosts=[])
+        assert settings.enable_dns_rebinding_protection is True
+
+    def test_an_unlisted_host_is_not_accepted(self) -> None:
+        settings = transport_security(host="127.0.0.1", port=8765, allowed_hosts=[])
+        assert "evil.example:8765" not in (settings.allowed_hosts or [])

@@ -83,14 +83,3 @@ def migrate() -> list[str]:
             )
             applied.append(version)
     return applied
-
-
-def default_tenant_id() -> str:
-    """Return the id of the single local tenant.
-
-    Multi-tenant deployments will resolve this from the request principal instead;
-    every query already filters on the value this returns.
-    """
-    with connect() as conn:
-        row = conn.execute(text("SELECT id FROM tenants WHERE slug = 'local'")).scalar_one()
-    return str(row)

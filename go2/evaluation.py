@@ -21,7 +21,8 @@ import yaml
 
 from go2.config import get_settings
 from go2.rag.retrieval import SearchOptions, search
-from go2.storage.db import connect, default_tenant_id
+from go2.storage.db import connect
+from go2.tenancy import resolve_tenant_id
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -181,7 +182,7 @@ def run_case(case: Case, *, tenant_id: str, limit: int = DEFAULT_LIMIT) -> Outco
 
 def run_all(cases: list[Case], *, limit: int = DEFAULT_LIMIT) -> list[Outcome]:
     """Run every case against the current index."""
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     return [run_case(case, tenant_id=tenant_id, limit=limit) for case in cases]
 
 

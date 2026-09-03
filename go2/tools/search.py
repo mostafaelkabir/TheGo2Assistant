@@ -20,7 +20,8 @@ from go2.config import get_settings
 from go2.observability import Trace
 from go2.rag.retrieval import SearchFilters, SearchOptions, search
 from go2.security.guard import screen_tool_output
-from go2.storage.db import connect, default_tenant_id
+from go2.storage.db import connect
+from go2.tenancy import resolve_tenant_id
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -86,7 +87,7 @@ def search_documents(
         paragraph I have", and the second is what ungrounded answers are made
         from.
     """
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     settings = get_settings()
     trace = Trace(kind="search", label=query)
     started = time.perf_counter()
@@ -173,7 +174,7 @@ def fetch_document(
     Returns:
         The document's metadata and text, marked if truncated.
     """
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     clause = "AND c.page = :page" if page is not None else ""
     with connect() as conn:
         meta = conn.execute(
@@ -231,7 +232,7 @@ def list_documents(
     Returns:
         Document metadata, most recently modified first.
     """
-    tenant_id = default_tenant_id()
+    tenant_id = resolve_tenant_id()
     parts = ["d.tenant_id = :t"]
     params: dict[str, Any] = {"t": tenant_id, "limit": limit}
     if source:
