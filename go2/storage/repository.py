@@ -9,6 +9,7 @@ than an audit of every query.
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -74,6 +75,23 @@ def get_document_state(conn: Connection, *, scope: Scope, external_id: str) -> D
     )
 
 
+def canonical_title(title: str) -> str:
+    """Return a title in a single Unicode form, so equal names compare equal.
+
+    macOS stores filenames decomposed (NFD): the Arabic in
+    ``النموذج الأولي للمنتج.pdf`` arrives with its vowel marks as separate code
+    points, while the same name typed into a query or a YAML file is composed
+    (NFC). The two render identically and are not equal, so a title filter
+    finds nothing and an eval case fails against the very document it names.
+
+    Normalising on the way in makes stored titles canonical; queries normalise
+    the same way. NFC rather than NFKC deliberately -- NFKC also folds
+    compatibility characters, which would rewrite ligatures and full-width
+    forms that are part of a real filename.
+    """
+    return unicodedata.normalize("NFC", title)
+
+
 def upsert_document(
     conn: Connection,
     *,
@@ -126,7 +144,7 @@ def upsert_document(
             "connection_id": scope.connection_id,
             "source": scope.source,
             "external_id": remote.external_id,
-            "title": remote.title,
+            "title": canonical_title(remote.title),
             "path": remote.path,
             "mime": remote.mime,
             "web_url": remote.web_url,

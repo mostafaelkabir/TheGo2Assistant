@@ -85,19 +85,47 @@ Drive files will reorder the rest better than this document can.
 questions: a smoke test, not a benchmark. It is enough to catch a regression
 that breaks retrieval outright and nowhere near enough to quote to a customer.
 
-Two findings from running it make this phase non-optional:
+### Baselines to beat
 
-- The same suite scores **5/17 on `dawan`**, because it asks about documents
-  Dawan does not have. Eval sets are per-workspace, which makes them a
-  per-client onboarding cost rather than a one-time build.
-- On Dawan the harness reports *"the bands overlap — no single threshold
-  separates answerable from unanswerable."* The global 0.30 evidence floor was
-  tuned on one corpus and demonstrably does not transfer.
+| Workspace | Suite | Passed | Rank 1 | MRR | Margin |
+|---|---|---|---|---|---|
+| `local` | `eval/questions.yaml` | 16/17 | 11 | 0.94 | +0.16 |
+| `dawan` | `eval/dawan.yaml` | 19/20 | 15 | 0.97 | +0.08 |
 
-Work: grow the set to several hundred questions drawn from real use; make the
-evidence floor per-corpus; test Arabic questions against English documents
-explicitly; build `query_spreadsheet` so a figure inside a sheet is answerable
-rather than merely locatable.
+Dawan's 20 cases were written by reading each document first — a case whose
+answer was guessed measures the guess. They include the two near-identical
+CQ-XP1010 quotations, which share a quotation number, a date and their
+specifications and differ only in level count and price. That pair is what
+hybrid search exists for, and it passes.
+
+### What building the second suite found
+
+**Eval sets are per-workspace.** The `local` suite scored 5/17 on `dawan` — it
+asks about documents that workspace has never held. That reads like a
+retrieval regression and is not one, so `tenant:` in an eval file now refuses
+to run against the wrong workspace rather than returning a meaningless number.
+Eval is therefore a per-client onboarding cost, not a one-time build.
+
+**Titles were not Unicode-normalised.** macOS stores filenames decomposed;
+a name typed into a query or a YAML file is composed. They render identically
+and compare unequal, so `title_contains` on an Arabic filename returned
+nothing and an eval case failed against the very document it named. Fixed at
+the write boundary, with migration `005` for existing rows — this was a
+user-facing bug, not only an eval one.
+
+**Cross-language retrieval is the real accuracy problem** ([#21](../../issues/21)).
+Asking in Arabic instead of English, against the same English document, costs
+a mean of 0.198 of score; three of five pairs fall under the 0.30 floor, so
+the assistant refuses questions it can answer. This is *not* "Arabic scores
+lower" — Arabic against Arabic scores 0.543, better than an English pair at
+0.342. And it cannot be fixed by moving the floor: a correct Arabic query
+scores 0.185 where a correct refusal scores 0.22, so the bands overlap and no
+threshold separates them. That overlap is what the harness has been warning
+about on this corpus; it now has a cause.
+
+Remaining work: grow both sets to several hundred questions drawn from real
+use; fix [#21](../../issues/21); build `query_spreadsheet` so a figure inside a
+sheet is answerable rather than merely locatable.
 
 ---
 
