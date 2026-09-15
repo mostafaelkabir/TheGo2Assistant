@@ -140,7 +140,7 @@ Config is read from `~/.config/go2/.env`, then a project-local `.env` that overr
 
 ```bash
 uv run pytest                  # full suite
-uv run pytest -m "not slow"    # skip the model-loading ones
+uv run pytest -m "not slow"    # skip those needing a model or a database
 go2 evaluate                   # retrieval quality against known answers
 ```
 

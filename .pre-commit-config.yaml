@@ -22,3 +22,11 @@ repos:
       - id: trailing-whitespace
       - id: check-added-large-files
       - id: check-merge-conflict
+      - id: check-yaml
+
+  # A workflow file is only exercised when it runs, and it runs on the commit
+  # that was supposed to be checked. actionlint reads it before that.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
