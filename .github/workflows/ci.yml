@@ -1,8 +1,19 @@
 name: CI
 
+# Branch pushes do not trigger CI: the /pre-pr gate runs the same checks
+# locally before a pull request exists, and firing on both `push` and
+# `pull_request` would run every job twice for the life of a PR -- the
+# concurrency group below cannot dedupe them, because a push is
+# refs/heads/<branch> and a pull request is refs/pull/N/merge.
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+
+# Nothing here writes anything.
+permissions:
+  contents: read
 
 # A newer push to the same ref makes the previous run's answer irrelevant.
 concurrency:
@@ -60,9 +71,9 @@ jobs:
 
   full-tests:
     name: Full suite — real database, real models
-    # Roughly 1.7 GB of model weights and a Postgres service: too slow to pay
-    # on every push to a branch, and exactly what a pull request is for.
-    if: github.event_name == 'pull_request'
+    # Roughly 1.7 GB of model weights and a Postgres service. Because branch
+    # pushes do not reach this workflow, every trigger that does is one worth
+    # paying for: a pull request, a merge to main, or a release tag.
     runs-on: ubuntu-latest
 
     services:
@@ -97,8 +108,11 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
-      # Keyed on config.py because that is where the model ids live: change a
-      # model, get a new cache rather than a stale one.
+      # Keyed on config.py, where the model ids live, so changing a model never
+      # reuses an entry written for the old one. restore-keys still falls back
+      # to the newest cache that exists: the superseded weights come with it,
+      # which costs disk and nothing else -- fastembed namespaces weights by
+      # model id and downloads the new one beside them.
       - name: Cache model weights
         uses: actions/cache@v4
         with:
@@ -113,10 +127,12 @@ jobs:
       - name: Apply migrations
         run: uv run go2 migrate
 
-      # tests/test_ingest_e2e.py and tests/test_tenancy.py skip themselves when
-      # no database answers. That is right on a laptop and wrong here: a
-      # misconfigured service would leave this job green having run none of the
-      # tests that touch pgvector -- the silent pass is the failure mode.
+      # test_ingest_e2e.py, test_tenancy.py, test_retrieval.py and
+      # test_mcp_server.py each skip themselves when no database answers. That
+      # is right on a laptop and wrong here: a misconfigured service would
+      # leave this job green having run none of the tests that touch pgvector.
+      # The silent pass is the failure mode, so assert reachability rather than
+      # assume it -- this is the same SELECT 1 those modules guard on.
       - name: Fail if the database is not reachable
         run: |
           uv run python - <<'PY'
@@ -131,3 +147,50 @@ jobs:
 
       - name: Run every test
         run: uv run pytest -q
+
+  release:
+    name: Build the wheel and publish the release
+    # The reason this lives in the CI workflow rather than its own: `needs`
+    # only reaches jobs in the same workflow, and a wheel built from a tree
+    # whose suite never ran is exactly the artefact you do not want to be
+    # holding during a rollback. A separate workflow would start in parallel
+    # with the tests and could publish ahead of a red one.
+    needs: [toolchain, fast-tests, full-tests]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    # The only job that writes anything, and the only one granted it.
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # A release whose filename disagrees with its tag is the kind of thing
+      # nobody notices until they are already debugging the wrong build.
+      - name: The tag must match the version in pyproject.toml
+        run: |
+          declared="$(uv run --no-project python -c 'import tomllib, pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "pyproject.toml declares $declared but the tag says $tagged" >&2
+            exit 1
+          fi
+          echo "version $declared"
+
+      - name: Build
+        run: uv build
+
+      # $GITHUB_REF_NAME as an environment variable, not a ${{ }} expansion:
+      # a tag name is chosen by whoever pushes the tag, and must not become
+      # shell.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes

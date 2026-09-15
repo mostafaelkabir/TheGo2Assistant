@@ -43,12 +43,22 @@ uv run pytest
 ```
 
 The full suite, not `-m "not slow"`. The slow tests are the ones that catch a
-dimension mismatch, a bad vector literal or a broken cascade, and they need
-PostgreSQL on port 5433.
+dimension mismatch, a bad vector literal or a broken cascade.
 
-**If they report as skipped, the database is not running.** Start it
-(`docker compose up -d db`, or the Homebrew `postgresql@17`) and run again. A
-green run that skipped them has proved nothing, which is worse than a red one.
+`slow` marks two different costs, and they fail differently. `test_embedding.py`
+is slow because it loads real weights — roughly 600 MB on a first run, and it
+does not skip, it just takes a while. The four modules that additionally need
+PostgreSQL on port 5433 are `test_ingest_e2e.py`, `test_tenancy.py`,
+`test_retrieval.py` and `test_mcp_server.py`, and those skip themselves when
+nothing answers.
+
+**If those four report as skipped, the database is not running** — do not go
+looking at the model cache. Start it (`docker compose up -d db`, or the
+Homebrew `postgresql@17`) and run again.
+
+Read the count, not the colour. The suite was 331 tests when this was written;
+`uv run pytest -q -rs` names anything that skipped. A green run that skipped
+the database tests has proved nothing, which is worse than a red one.
 
 ## 4. Retrieval changes have to clear the eval
 
@@ -62,6 +72,12 @@ GO2_TENANT=dawan go2 evaluate eval/dawan.yaml
 
 Compare against the baselines recorded in `docs/roadmap.md` — `local` 16/17 at
 MRR 0.94, `dawan` 19/20 at MRR 0.97. A drop is a blocker.
+
+If a workspace holds no documents on this machine, skip its suite and say so
+rather than reporting the number. The `tenant:` key in an eval file refuses to
+run against the *wrong* workspace, but nothing catches an *empty* one: it
+returns a plausible, terrible score that reads exactly like a regression and is
+a missing corpus.
 
 Retrieval regressions are silent: the system keeps returning confident-looking
 passages, just the wrong ones. That is why invariant 8 exists — a fix landed
