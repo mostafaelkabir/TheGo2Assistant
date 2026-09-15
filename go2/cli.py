@@ -14,7 +14,14 @@ from sqlalchemy import text
 
 from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
-from go2.evaluation import EvalFileError, load_cases, run_all, summarise
+from go2.evaluation import (
+    EvalFileError,
+    Suite,
+    TenantMismatchError,
+    load_cases,
+    run_all,
+    summarise,
+)
 from go2.extraction.registry import supported_extensions
 from go2.jobs.ingest import IngestResult, ingest_document
 from go2.jobs.worker import DEFAULT_MAX_BYTES, enqueue_paths, run_worker
@@ -270,6 +277,18 @@ def scan(
         typer.echo("nothing leaves this machine under the local provider.")
 
 
+def _require_matching_tenant(suite: Suite) -> None:
+    """Refuse to score a question set against a workspace it was not written for.
+
+    Raises:
+        typer.Exit: When the suite names a different workspace.
+    """
+    active = get_settings().tenant
+    if suite.tenant is not None and suite.tenant != active:
+        typer.echo(str(TenantMismatchError(suite.tenant, active)), err=True)
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def evaluate(
     path: Annotated[Path, typer.Argument(help="YAML file of eval cases.")] = Path(
@@ -287,7 +306,7 @@ def evaluate(
     number you can compare.
     """
     try:
-        cases = load_cases(path)
+        suite = load_cases(path)
     except EvalFileError as exc:
         typer.echo(
             f"{exc}\n\nCreate one like:\n"
@@ -297,7 +316,8 @@ def evaluate(
         )
         raise typer.Exit(code=1) from exc
 
-    outcomes = run_all(cases, limit=limit)
+    _require_matching_tenant(suite)
+    outcomes = run_all(suite.cases, limit=limit)
     for outcome in outcomes:
         mark = "PASS" if outcome.passed else "FAIL"
         if outcome.case.expect_no_answer:

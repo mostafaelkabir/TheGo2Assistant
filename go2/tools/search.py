@@ -21,6 +21,7 @@ from go2.observability import Trace
 from go2.rag.retrieval import SearchFilters, SearchOptions, search
 from go2.security.guard import screen_tool_output
 from go2.storage.db import connect
+from go2.storage.repository import canonical_title
 from go2.tenancy import resolve_tenant_id
 
 if TYPE_CHECKING:
@@ -240,7 +241,7 @@ def list_documents(
         params["source"] = source
     if title_contains:
         parts.append("d.title ILIKE :title")
-        params["title"] = f"%{title_contains}%"
+        params["title"] = f"%{canonical_title(title_contains)}%"
     if status:
         parts.append("d.status = CAST(:status AS doc_status)")
         params["status"] = status
