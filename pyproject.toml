@@ -86,5 +86,5 @@ python-version = "3.12"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "slow: loads the real embedding model (~600 MB download on first run)",
+    "slow: needs a real dependency the fast tier has not got -- the embedding model (~600 MB on a first run), a reachable PostgreSQL, or both",
 ]

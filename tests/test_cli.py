@@ -337,8 +337,14 @@ class TestConfigLocation:
         assert self._env_sources()[-1] == ".env"
 
 
+@pytest.mark.slow
 class TestServeValidatesTenant:
-    """`serve --http` refuses to start against a tenant that does not exist."""
+    """`serve --http` refuses to start against a tenant that does not exist.
+
+    Needs a reachable database. Without one the command still exits 1, but on a
+    connection error rather than on the tenant check -- the assertions would
+    pass while testing nothing.
+    """
 
     def test_an_unknown_tenant_exits_rather_than_serving(
         self, monkeypatch: pytest.MonkeyPatch
