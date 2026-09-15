@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same ref makes the previous run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  toolchain:
+    name: Toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # --locked fails if uv.lock disagrees with pyproject.toml. CI must
+      # install exactly what a developer installs, or it is testing something
+      # nobody runs.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # --check, and no --fix: CI reports, it does not mutate. A pipeline that
+      # rewrote the tree would hide the fact that the commit was never
+      # formatted, and the next developer would meet the diff instead.
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: pyrefly
+        run: uv run pyrefly check
+
+  fast-tests:
+    name: Fast tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run the tests that need neither a database nor a model
+        run: uv run pytest -m "not slow" -q
+
+  full-tests:
+    name: Full suite — real database, real models
+    # Roughly 1.7 GB of model weights and a Postgres service: too slow to pay
+    # on every push to a branch, and exactly what a pull request is for.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        # The same image and port as docker-compose.yml, so CI and a laptop
+        # are not two different databases.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: go2
+          POSTGRES_PASSWORD: go2
+          POSTGRES_DB: go2
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U go2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Identical to the default in go2/config.py; stated here so the job reads
+      # as self-contained rather than relying on a default matching by luck.
+      GO2_DATABASE_URL: postgresql+psycopg://go2:go2@localhost:5433/go2
+      GO2_MODEL_CACHE_DIR: ${{ github.workspace }}/.model-cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # Keyed on config.py because that is where the model ids live: change a
+      # model, get a new cache rather than a stale one.
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.model-cache
+          key: go2-models-${{ runner.os }}-${{ hashFiles('go2/config.py') }}
+          restore-keys: |
+            go2-models-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Apply migrations
+        run: uv run go2 migrate
+
+      # tests/test_ingest_e2e.py and tests/test_tenancy.py skip themselves when
+      # no database answers. That is right on a laptop and wrong here: a
+      # misconfigured service would leave this job green having run none of the
+      # tests that touch pgvector -- the silent pass is the failure mode.
+      - name: Fail if the database is not reachable
+        run: |
+          uv run python - <<'PY'
+          from sqlalchemy import text
+
+          from go2.storage.db import connect
+
+          with connect() as conn:
+              conn.execute(text("SELECT 1"))
+          print("database reachable")
+          PY
+
+      - name: Run every test
+        run: uv run pytest -q
