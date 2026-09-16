@@ -3,8 +3,38 @@
 Measured on 2026-09-02 against the live install: 180 documents, 1,873 chunks,
 45.8 MB. Figures below are observed unless marked *projected*.
 
-Numbered tickets are tracked as GitHub issues. Each names the test cases that
-define "done" — a ticket without them is a wish, not a ticket.
+This file says *why* and *in what order*. What exactly each item delivers,
+who holds it and whether it is done lives in [`../backlog/`](../backlog/):
+one file per ticket, and [`BACKLOG.md`](../backlog/BACKLOG.md) as the index.
+Ticket ids here are `T-NNN` and link to those files. Where a GitHub issue
+exists too, the ticket names it. A ticket names the test cases that define
+"done" — a ticket without them is a wish, not a ticket.
+
+Updated 2026-09-16.
+
+---
+
+## Now, next, later
+
+| | What | Tickets |
+|---|---|---|
+| **Now** | Google Drive end to end, and the process to build it with | T-000, T-010 → T-012 |
+| **Next** | The gate before anyone else touches it: auth, real workspaces, OCR | T-016, T-017, T-018, T-019 |
+| **Then** | The rest of Drive: picker, incremental sync, deletions | T-013 → T-015 |
+| **Later** | Earn the accuracy claim: cross-language, spreadsheets, eval at scale | T-021, T-022, T-023, T-025 |
+| **2027** | A second connector, hosted | T-024, T-026 |
+
+---
+
+## Phase 0 — The process
+
+*Done with [T-000](../backlog/tickets/T-000-file-based-backlog-and-ticket-process.md).*
+
+The toolchain, the full suite and an agent review run before a PR exists
+(`/pre-pr`), and CI re-runs them on the PR. Work is planned in tickets
+before code is written, and the ticket is the record of what landed and what
+was measured, so several agents can share the queue without a service in the
+way. `go2 backlog check` keeps the files honest; the fast tests run it.
 
 ---
 
@@ -40,14 +70,14 @@ and cursor handling, with 23 tests. What is missing is that no line in `go2/`
 references OAuth, `token_blob` is written as `b""` and never read, and no CLI
 command imports the connector.
 
-| # | Ticket | Depends on |
+| Ticket | | Depends on |
 |---|---|---|
-| [#10](../../issues/10) | Encrypt OAuth credentials at rest | — |
-| [#11](../../issues/11) | `go2 connect google` — the authorisation flow | #10 |
-| [#12](../../issues/12) | `go2 sync` — drive the connector from the CLI | #11 |
-| [#13](../../issues/13) | Google Picker with the `drive.file` scope | #12 |
-| [#14](../../issues/14) | Incremental sync: persist and resume from the cursor | #12 |
-| [#15](../../issues/15) | Deletions must drop their chunks | #14 |
+| [T-010](../backlog/tickets/T-010-encrypt-oauth-credentials-at-rest.md) | Encrypt OAuth credentials at rest | — |
+| [T-011](../backlog/tickets/T-011-go2-connect-google-authorisation-flow.md) | `go2 connect google` — the authorisation flow | T-010 |
+| [T-012](../backlog/tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | `go2 sync` — drive the connector from the CLI | T-011 |
+| [T-013](../backlog/tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the `drive.file` scope | T-012 |
+| [T-014](../backlog/tickets/T-014-incremental-sync-persist-and-resume-from-the-cursor.md) | Incremental sync: persist and resume from the cursor | T-012 |
+| [T-015](../backlog/tickets/T-015-deletions-must-drop-their-chunks.md) | Deletions must drop their chunks | T-014 |
 
 **Scope decision: `drive.file`, not `drive.readonly`.** The account is a
 personal Gmail, so the OAuth *Internal* user type is unavailable — that
@@ -59,7 +89,7 @@ audit, no weekly expiry, and `changes.list` still works. The cost is that the
 user must pick folders explicitly — which is also the easier client
 conversation.
 
-**Stop after #12 and use it for a few days.** Real questions against real
+**Stop after T-012 and use it for a few days.** Real questions against real
 Drive files will reorder the rest better than this document can.
 
 ---
@@ -68,12 +98,15 @@ Drive files will reorder the rest better than this document can.
 
 *A gate, not a backlog. A client demo cannot honestly happen before it closes.*
 
-| # | Ticket | Why it gates |
+| Ticket | | Why it gates |
 |---|---|---|
-| [#16](../../issues/16) | Authentication in front of `go2 serve --http` | There is none. Loopback binding is the only thing protecting the index. |
-| [#17](../../issues/17) | Split `local` into real per-project workspaces | 92 HaramBlur + 20 Atmata + 5 test documents share one workspace. |
-| [#18](../../issues/18) | OCR for scanned documents | Two Dawan files are image-only and unanswerable. |
-| [#19](../../issues/19) | Tool-output redaction when the reader is not the owner | The switch works; nothing turns it on. |
+| [T-016](../backlog/tickets/T-016-authentication-in-front-of-go2-serve-http.md) | Authentication in front of `go2 serve --http` | There is none. Loopback binding is the only thing protecting the index. |
+| [T-017](../backlog/tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split `local` into real per-project workspaces | 92 HaramBlur + 20 Atmata + 5 test documents share one workspace. |
+| [T-018](../backlog/tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | Two Dawan files are image-only and unanswerable. |
+| [T-019](../backlog/tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Tool-output redaction when the reader is not the owner | The switch works; nothing turns it on. |
+
+T-016 is the one that gates the others: T-019 and any hosted deployment
+depend on knowing whether a request is trusted.
 
 ---
 
@@ -113,7 +146,7 @@ nothing and an eval case failed against the very document it named. Fixed at
 the write boundary, with migration `005` for existing rows — this was a
 user-facing bug, not only an eval one.
 
-**Cross-language retrieval is the real accuracy problem** ([#21](../../issues/21)).
+**Cross-language retrieval is the real accuracy problem** ([T-021](../backlog/tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md)).
 Asking in Arabic instead of English, against the same English document, costs
 a mean of 0.198 of score; three of five pairs fall under the 0.30 floor, so
 the assistant refuses questions it can answer. This is *not* "Arabic scores
@@ -123,9 +156,12 @@ scores 0.185 where a correct refusal scores 0.22, so the bands overlap and no
 threshold separates them. That overlap is what the harness has been warning
 about on this corpus; it now has a cause.
 
-Remaining work: grow both sets to several hundred questions drawn from real
-use; fix [#21](../../issues/21); build `query_spreadsheet` so a figure inside a
-sheet is answerable rather than merely locatable.
+| Ticket | | Why |
+|---|---|---|
+| [T-021](../backlog/tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md) | Cross-language retrieval below the floor | Correct answers are refused; the fix must be retrieval-side. |
+| [T-022](../backlog/tickets/T-022-query-spreadsheet-tool.md) | `query_spreadsheet` | A figure in a sheet is locatable but not answerable. |
+| [T-023](../backlog/tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Eval sets to several hundred questions | 17 and 20 cases catch a breakage, not a drift. |
+| [T-025](../backlog/tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation | Decide the index-memory trade before a customer forces it. |
 
 ---
 
@@ -133,14 +169,16 @@ sheet is answerable rather than merely locatable.
 
 *2027.*
 
-OneDrive via Graph `/delta`. Its real value is not OneDrive: it is proving the
-connector seam holds with **zero new ingestion code**. If it needs any, the
-abstraction was wrong, and better to learn that on the second connector than
-the fifth. `tests/test_connector_contract.py` exists to make that verifiable
-rather than a matter of opinion.
+OneDrive via Graph `/delta` ([T-024](../backlog/tickets/T-024-onedrive-connector-over-graph-delta.md)).
+Its real value is not OneDrive: it is proving the connector seam holds with
+**zero new ingestion code**. If it needs any, the abstraction was wrong, and
+better to learn that on the second connector than the fifth.
+`tests/test_connector_contract.py` exists to make that verifiable rather
+than a matter of opinion.
 
-Then hosted deployment, once #16 is done, and per-tenant partitioning if
-any single workspace approaches a million documents.
+Then hosted deployment ([T-026](../backlog/tickets/T-026-hosted-deployment-behind-authentication.md)),
+once T-016 and T-019 are done, and per-tenant partitioning if any single
+workspace approaches a million documents.
 
 ---
 
@@ -153,7 +191,7 @@ Only a large eval set catches it. This is why Phase 3 is not polish.
 **A client with 500,000 documents.** Storage stays fine; the index working set
 does not. The escape is dimension reduction — these embeddings are
 Matryoshka-truncatable to 512 or 256 dimensions — but that trade has not been
-measured here, and it should be measured before a customer forces it.
+measured here, and it should be measured before a customer forces it (T-025).
 
 **Model tool-calling quality.** The design leans on the model to drive a loop
 and to refuse when evidence is weak. A cheaper model skips the tools and

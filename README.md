@@ -107,6 +107,7 @@ Every row carries a workspace id, and every query filters on it. `go2 tenant` cr
 | `go2 scan PATH` | Report sensitive values *before* indexing |
 | `go2 evaluate` | Run `eval/questions.yaml`, report rank and MRR |
 | `go2 trace` | Per-component steps of recent requests, egress marked |
+| `go2 backlog` | Tickets ready to pick up (`check`, `index`, `new`) |
 | `go2 serve` | MCP server on stdio |
 | `go2 serve --http` | ...over Streamable HTTP, for a chat UI |
 
@@ -148,4 +149,4 @@ go2 evaluate                   # retrieval quality against known answers
 
 ---
 
-Architecture rationale: [`docs/architecture.md`](docs/architecture.md) · Working agreement: [`CLAUDE.md`](CLAUDE.md)
+Architecture rationale: [`docs/architecture.md`](docs/architecture.md) · Roadmap: [`docs/roadmap.md`](docs/roadmap.md) · Backlog: [`backlog/`](backlog/) · Working agreement: [`CLAUDE.md`](CLAUDE.md)
