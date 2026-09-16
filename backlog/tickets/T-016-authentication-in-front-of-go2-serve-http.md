@@ -55,5 +55,8 @@ A gate, not a feature: T-019 and any hosted deployment (T-026) depend on it.
 - 2026-09-03 — Opened as GitHub issue #16.
 - 2026-09-16 — Mirrored into the local backlog.
 - 2026-09-16 — Claimed on `feat/http-auth`.
+- 2026-09-16 — Bearer middleware, bind check and CLI wiring written with the six
+  named tests. Opened T-027 (users and roles) and T-028 (source permissions)
+  for what this ticket deliberately leaves out.
 
 ## Outcome

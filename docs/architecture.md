@@ -99,6 +99,28 @@ and only memory grows, so a small batch is strictly better.
 threaded through every write. Single tenant today. Becoming multi-tenant means
 resolving `Scope` from a request rather than auditing every call site.
 
+## Authentication is not authorisation
+
+`go2 serve --http` accepts a bearer token and nothing else. The token answers
+one question -- may this client talk to this server -- and deliberately not
+the other: which workspace, and what may it do there. The tenant is still
+chosen by the serving process. Keeping the two apart matters because the
+moment a token can *name* a tenant, a token is a key to every workspace the
+server can reach, and the isolation `tests/test_tenancy.py` proves becomes a
+matter of which string a client sent.
+
+A static token rather than OAuth, because the client today is a chat UI on
+the same machine and the SDK's OAuth path wants an authorization server and
+resource metadata this deployment does not have. The comparison goes through
+`hmac.compare_digest` over fixed-length digests, so neither the token's
+length nor a partially correct guess shows in response time. Binding beyond
+loopback without a token refuses to start: a warning is read once, a refusal
+is read every time.
+
+Per-user identity, roles within a workspace, and permissions mirrored from
+the source are the next two steps (T-027, T-028) and hang off the same
+middleware seam.
+
 ## Configuration is not relative to the working directory
 
 `go2` is installed as a tool and runs from anywhere, so config is read from

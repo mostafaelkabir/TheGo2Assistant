@@ -21,9 +21,11 @@ How to work from this file: [README.md](README.md).
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-019](tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Turn on tool-output redaction when the reader is not the owner | 2-gate | P1 | backlog | T-016 | — | — | [#19](../../../issues/19) |
+| [T-027](tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles: resolve the tenant from the principal | 2-gate | P1 | backlog | T-016, T-017 | — | — | — |
 | [T-013](tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the drive.file scope | 1-drive | P2 | backlog | T-012 | — | — | [#13](../../../issues/13) |
 | [T-014](tickets/T-014-incremental-sync-persist-and-resume-from-the-cursor.md) | Incremental sync: persist and resume from the cursor | 1-drive | P2 | backlog | T-012 | — | — | [#14](../../../issues/14) |
 | [T-015](tickets/T-015-deletions-must-drop-their-chunks.md) | Deletions must drop their chunks | 1-drive | P2 | backlog | T-014 | — | — | [#15](../../../issues/15) |
+| [T-028](tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions so a reader sees only files shared with them | 2-gate | P2 | backlog | T-027, T-012 | — | — | — |
 | [T-024](tickets/T-024-onedrive-connector-over-graph-delta.md) | OneDrive connector over Graph /delta | 4-second-connector | P3 | backlog | T-015 | — | — | — |
 | [T-026](tickets/T-026-hosted-deployment-behind-authentication.md) | Hosted deployment behind authentication | 4-second-connector | P3 | backlog | T-016, T-019 | — | — | — |
 
