@@ -1,14 +1,14 @@
 ---
 id: T-029
 title: Mirror the backlog into Basira with go2 backlog sync
-status: in-progress
+status: in-review
 phase: 0-process
 priority: P1
 blocked_by: []
 github_issue:
 owner: claude-fable-5.1
 branch: process/basira-sync
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/25
 created: 2026-09-16
 updated: 2026-09-16
 closed:
@@ -89,5 +89,6 @@ sync step after every ticket edit, next to `go2 backlog index`.
   Basira by hand.
 - 2026-09-16 — Review: no blockers. Unconfigured now exits 0; updates name
   the differing field; duplicate refs reported; id pattern shared with backlog.
+- 2026-09-16 — PR opened: https://github.com/mostafaelkabir/TheGo2Assistant/pull/25
 
 ## Outcome
