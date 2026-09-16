@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import socket
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -398,9 +399,32 @@ class TestBindCheck:
         with pytest.raises(MissingTokenError):
             build_http_app(host=host, port=8765, allowed_hosts=[], token="")
 
-    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+    @pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "localhost", "::1"])
     def test_loopback_is_allowed_without_a_token(self, host: str) -> None:
         check_bind(host=host, token="")
+
+    def test_a_name_that_resolves_beyond_loopback_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # /etc/hosts can point `localhost` at the LAN address. The string is
+        # not what gets bound; the addresses it resolves to are.
+        def lan(*_args: Any, **_kwargs: Any) -> list[tuple[Any, ...]]:
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", 0)),
+            ]
+
+        monkeypatch.setattr(mcp_server.socket, "getaddrinfo", lan)
+        with pytest.raises(MissingTokenError):
+            check_bind(host="localhost", token="")
+
+    def test_a_name_that_does_not_resolve_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unresolvable(*_args: Any, **_kwargs: Any) -> list[tuple[Any, ...]]:
+            raise socket.gaierror
+
+        monkeypatch.setattr(mcp_server.socket, "getaddrinfo", unresolvable)
+        with pytest.raises(MissingTokenError):
+            check_bind(host="no-such-host.invalid", token="")
 
     def test_a_token_permits_a_wider_bind(self) -> None:
         check_bind(host=ALL_INTERFACES, token=TOKEN)

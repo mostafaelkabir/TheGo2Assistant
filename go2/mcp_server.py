@@ -13,7 +13,9 @@ Run with ``go2 serve`` (stdio) or ``go2 serve --http`` (Streamable HTTP).
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import socket
 from hmac import compare_digest
 from typing import TYPE_CHECKING, Any
 
@@ -138,9 +140,28 @@ def transport_security(
     )
 
 
-# Interfaces only this machine can reach. Anything else is "beyond loopback"
-# and needs a token before the server will bind to it.
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+def is_loopback(host: str) -> bool:
+    """Whether every address ``host`` names is one only this machine can reach.
+
+    A literal address is judged directly. A name is resolved, and every
+    address it resolves to must be loopback: ``localhost`` is usually
+    ``127.0.0.1``, but an ``/etc/hosts`` entry can point it at the LAN
+    address, and trusting the string would then exempt an externally
+    reachable bind from the token. A name that does not resolve is not
+    loopback either -- the bind will fail anyway, and refusing is the safe
+    side.
+    """
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass  # a hostname, not an address
+    try:
+        resolved = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    return bool(resolved) and all(
+        ipaddress.ip_address(str(info[4][0])).is_loopback for info in resolved
+    )
 
 
 class MissingTokenError(RuntimeError):
@@ -167,7 +188,7 @@ def check_bind(*, host: str, token: str) -> None:
     Raises:
         MissingTokenError: If ``host`` is not loopback and ``token`` is empty.
     """
-    if host not in LOOPBACK_HOSTS and not token:
+    if not token and not is_loopback(host):
         raise MissingTokenError(host)
 
 
