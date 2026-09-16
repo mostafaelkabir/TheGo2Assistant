@@ -70,6 +70,9 @@ ids are configuration, not discovered by name at every run.
 - `test_an_update_names_the_field_that_differs`
 - `test_duplicate_refs_in_basira_are_reported`
 - `test_an_unconfigured_mirror_is_off_not_broken`
+- `test_a_half_configured_mirror_is_an_error`
+- `test_a_remote_basira_url_is_refused`
+- `test_a_changed_pull_request_replaces_the_generated_proof`
 
 ## Design notes
 
@@ -90,5 +93,8 @@ sync step after every ticket edit, next to `go2 backlog index`.
 - 2026-09-16 — Review: no blockers. Unconfigured now exits 0; updates name
   the differing field; duplicate refs reported; id pattern shared with backlog.
 - 2026-09-16 — PR opened: https://github.com/mostafaelkabir/TheGo2Assistant/pull/25
+- 2026-09-16 — Codex review: remote GO2_BASIRA_URL now refused (loopback check
+  shared with the auth gate); half-configured ids are an error; a changed PR
+  replaces the generated proof.
 
 ## Outcome

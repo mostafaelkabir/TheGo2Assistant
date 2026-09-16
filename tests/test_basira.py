@@ -21,7 +21,7 @@ from go2.basira import BasiraError, SyncReport, Target, desired, sync
 from go2.cli import app
 from go2.config import Settings, get_settings
 
-TARGET = Target(url="http://basira.test", company_id="company-1", goal_id="goal-1")
+TARGET = Target(url="http://127.0.0.1:8001", company_id="company-1", goal_id="goal-1")
 
 
 class FakeBasira:
@@ -134,6 +134,39 @@ def test_an_unconfigured_mirror_is_off_not_broken(monkeypatch: pytest.MonkeyPatc
     assert "off" in result.output
 
 
+def test_a_half_configured_mirror_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GO2_BASIRA_COMPANY_ID", "company-1")
+    monkeypatch.delenv("GO2_BASIRA_GOAL_ID", raising=False)
+    monkeypatch.setattr(Settings, "model_config", {**Settings.model_config, "env_file": None})
+    get_settings.cache_clear()
+    try:
+        result = CliRunner().invoke(app, ["backlog", "sync"])
+    finally:
+        get_settings.cache_clear()
+    assert result.exit_code == 1
+    assert "GO2_BASIRA_GOAL_ID" in result.output
+
+
+def test_a_remote_basira_url_is_refused() -> None:
+    # The egress-guard exemption holds only while Basira is local.
+    basira = FakeBasira()
+    remote = Target(url="http://basira.example.com", company_id="company-1", goal_id="goal-1")
+    with pytest.raises(BasiraError, match="must be local"):
+        sync([_ticket()], remote, client=basira.client())
+    assert basira.requests == []
+
+
+def test_a_changed_pull_request_replaces_the_generated_proof() -> None:
+    basira = FakeBasira()
+    sync([_ticket(pr="https://example/pr/1")], TARGET, client=basira.client())
+    basira.by_ref("T-001")["proofs"].append({"url": "https://example/shot.png", "label": "by hand"})
+    sync([_ticket(pr="https://example/pr/2")], TARGET, client=basira.client())
+    assert basira.by_ref("T-001")["proofs"] == [
+        {"url": "https://example/shot.png", "label": "by hand"},
+        {"url": "https://example/pr/2", "label": "Pull request"},
+    ]
+
+
 def test_an_unchanged_ticket_makes_no_request() -> None:
     basira = FakeBasira()
     sync([_ticket()], TARGET, client=basira.client())
@@ -215,7 +248,7 @@ def test_an_unreachable_basira_names_the_url() -> None:
         raise httpx.ConnectError(msg)
 
     client = httpx.Client(base_url=TARGET.url, transport=httpx.MockTransport(refuse))
-    with pytest.raises(BasiraError, match=r"basira\.test"):
+    with pytest.raises(BasiraError, match=r"127\.0\.0\.1"):
         sync([_ticket()], TARGET, client=client)
 
 

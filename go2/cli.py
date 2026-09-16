@@ -643,7 +643,8 @@ def backlog_sync(
     from go2.basira import BasiraError, Target, sync  # noqa: PLC0415 -- defer httpx.
 
     settings = get_settings()
-    if not (settings.basira_company_id and settings.basira_goal_id):
+    ids = (settings.basira_company_id, settings.basira_goal_id)
+    if not any(ids):
         # Off, not broken: this runs at the end of every ticket-edit chain,
         # and a contributor or CI without Basira must not fail there.
         typer.echo(
@@ -651,6 +652,15 @@ def backlog_sync(
             "nothing synced."
         )
         return
+    if not all(ids):
+        # Half a configuration is a typo, not a choice; reporting it as "off"
+        # would let every mandated sync pass while Basira drifts.
+        typer.echo(
+            "Basira mirror is half configured: set both GO2_BASIRA_COMPANY_ID and "
+            "GO2_BASIRA_GOAL_ID, or neither to switch it off.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     try:
         tickets = backlog_store.load_tickets()
     except backlog_store.TicketError as exc:

@@ -16,9 +16,9 @@ a repository ticket rather than being lost.
 
 Basira answers on loopback without authentication and holds only ticket
 text, so nothing here passes through the egress guard: no document content
-is involved and nothing leaves the machine. That exemption is conditioned on
-``GO2_BASIRA_URL`` staying local; pointed at a remote host this would be an
-egress path and would need the guard like any other.
+is involved and nothing leaves the machine. That exemption holds only while
+``GO2_BASIRA_URL`` is local, so :func:`sync` refuses a URL whose host does not
+resolve to loopback rather than becoming an unguarded egress path.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from go2.backlog import ID_PATTERN
+from go2.security.loopback import is_loopback
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -60,6 +61,9 @@ OWNED = (
     "notes",
 )
 _TIMEOUT = httpx.Timeout(10.0, connect=3.0)
+# The label on the proof this module writes, so it can replace its own and
+# leave anything the owner attached by hand alone.
+PR_PROOF_LABEL = "Pull request"
 
 
 class BasiraError(RuntimeError):
@@ -149,13 +153,19 @@ def differences(existing: dict[str, Any], wanted: dict[str, Any]) -> dict[str, t
 
 
 def _proofs(existing: dict[str, Any] | None, ticket: Ticket) -> list[dict[str, str]] | None:
-    """Add the PR as a proof once, without touching proofs added by hand."""
+    """The proofs list with the ticket's PR as its one generated proof, or None if unchanged.
+
+    Hand-added proofs are kept. An earlier generated proof for a different
+    PR URL is replaced, so a corrected ``pr:`` does not leave a stale link.
+    """
     if not ticket.pr:
         return None
     current = list((existing or {}).get("proofs") or [])
-    if any(p.get("url") == ticket.pr for p in current):
+    generated = {"url": ticket.pr, "label": PR_PROOF_LABEL}
+    if generated in current:
         return None
-    return [*current, {"url": ticket.pr, "label": "Pull request"}]
+    kept = [p for p in current if p.get("label") != PR_PROOF_LABEL]
+    return [*kept, generated]
 
 
 def sync(
@@ -178,10 +188,17 @@ def sync(
         repository does not.
 
     Raises:
-        BasiraError: If Basira cannot be reached or refuses a request. Each
-            ticket is a single request, so a failure never leaves one half
-            written.
+        BasiraError: If ``target.url`` is not loopback, or Basira cannot be
+            reached or refuses a request. Each ticket is a single request,
+            so a failure never leaves one half written.
     """
+    host = httpx.URL(target.url).host
+    if not is_loopback(host):
+        msg = (
+            f"refusing to sync to {target.url}: Basira must be local. Ticket text would "
+            f"otherwise leave the machine without passing the egress guard."
+        )
+        raise BasiraError(msg)
     owns = client is None
     http = client or httpx.Client(base_url=target.url, timeout=_TIMEOUT)
     run = _Run(
