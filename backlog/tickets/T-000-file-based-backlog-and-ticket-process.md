@@ -1,7 +1,7 @@
 ---
 id: T-000
 title: A file-based backlog, and no code without a ticket
-status: in-review
+status: done
 phase: 0-process
 priority: P0
 blocked_by: []
@@ -11,7 +11,7 @@ branch: process/backlog-and-tickets
 pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/23
 created: 2026-09-16
 updated: 2026-09-16
-closed:
+closed: 2026-09-16
 ---
 
 ## Problem
@@ -89,5 +89,27 @@ memorability; that is a convenience, not a rule.
   process docs written on `process/backlog-and-tickets`.
 - 2026-09-16 — Review found the scaffold wrote titles unquoted; fixed. PR #23
   opened; ticket to in-review.
+- 2026-09-16 — PR #23 merged; ticket closed.
 
 ## Outcome
+
+Shipped: `backlog/` with one file per ticket, `backlog/README.md` as the
+lifecycle contract, `go2 backlog` (`list`, `--all`, `check`, `index`, `new`),
+the `/ticket` and `/pre-pr` skills, and the "no code without a ticket" rule
+in `CLAUDE.md`. Merged as PR #23.
+
+Success metrics as measured on `main` after the merge:
+
+- Every open piece of planned work has a ticket: 17 files, 17 open, 0
+  closed before this one; `go2 backlog check` reports "17 tickets valid,
+  index current".
+- PR #23 itself names T-000 in its first line and the ticket was
+  `in-review` with the PR linked before merge.
+- "Pick the next ticket" works from `go2 backlog` alone: the ready list is
+  ordered by priority and T-016 is at the top.
+- Malformed tickets fail the fast tests: `tests/test_backlog.py` has 23
+  tests covering the named cases; the whole suite was 354 passed at merge.
+
+Left out: no `blocked_by` cycle detection (two mutually blocked `backlog`
+tickets simply never become ready; nothing hangs). Not ticketed because it
+has not happened and the check would show two stuck tickets if it did.
