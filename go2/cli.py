@@ -628,6 +628,82 @@ def backlog_index() -> None:
     typer.echo(f"wrote {target}")
 
 
+@backlog_app.command("sync")
+def backlog_sync(
+    *,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Report what would change without writing.")
+    ] = False,
+) -> None:
+    """Mirror every ticket into Basira, creating or updating by its id.
+
+    One direction: the ticket files are the record, Basira is where progress
+    is watched. Run it after every ticket edit, next to `go2 backlog index`.
+    """
+    from go2.basira import BasiraError, Target, sync  # noqa: PLC0415 -- defer httpx.
+
+    settings = get_settings()
+    ids = (settings.basira_company_id, settings.basira_goal_id)
+    if not any(ids):
+        # Off, not broken: this runs at the end of every ticket-edit chain,
+        # and a contributor or CI without Basira must not fail there.
+        typer.echo(
+            "Basira mirror is off (GO2_BASIRA_COMPANY_ID and GO2_BASIRA_GOAL_ID unset); "
+            "nothing synced."
+        )
+        return
+    if not all(ids):
+        # Half a configuration is a typo, not a choice; reporting it as "off"
+        # would let every mandated sync pass while Basira drifts.
+        typer.echo(
+            "Basira mirror is half configured: set both GO2_BASIRA_COMPANY_ID and "
+            "GO2_BASIRA_GOAL_ID, or neither to switch it off.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        tickets = backlog_store.load_tickets()
+    except backlog_store.TicketError as exc:
+        typer.echo(f"backlog is inconsistent, fix it first: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    target = Target(
+        url=settings.basira_url,
+        company_id=settings.basira_company_id,
+        goal_id=settings.basira_goal_id,
+    )
+    # httpx logs every request at INFO; twenty "201 Created" lines drown the
+    # one-line report the command exists to print.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    try:
+        report = sync(tickets, target, dry_run=dry_run)
+    except BasiraError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    verb = "would create" if dry_run else "created"
+    typer.echo(
+        f"{verb} {len(report.created)}, "
+        f"{'would update' if dry_run else 'updated'} {len(report.updated)}, "
+        f"unchanged {len(report.unchanged)}"
+    )
+    if report.created:
+        typer.echo(f"  created: {', '.join(report.created)}")
+    for ticket_id in report.updated:
+        fields = ", ".join(
+            f"{name} basira={before!r} file={after!r}"
+            for name, (before, after) in report.changes.get(ticket_id, {}).items()
+        )
+        typer.echo(f"  {ticket_id}: {fields or 'pull request added as proof'}")
+    if report.duplicated:
+        typer.echo(
+            "Duplicate refs in Basira, only one of each is kept in step: "
+            f"{', '.join(report.duplicated)}"
+        )
+    if report.unmatched:
+        typer.echo("In Basira but not in the repository -- write a ticket for each:")
+        for title in report.unmatched:
+            typer.echo(f"  - {title}")
+
+
 @backlog_app.command("new")
 def backlog_new(
     title: Annotated[str, typer.Argument(help="One line, the way a commit subject would say it.")],

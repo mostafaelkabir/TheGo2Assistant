@@ -17,6 +17,7 @@ How to work from this file: [README.md](README.md).
 | [T-022](tickets/T-022-query-spreadsheet-tool.md) | query_spreadsheet: answer from the rows, not the summary | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-023](tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Grow the eval sets to several hundred questions from real use | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
+| [T-029](tickets/T-029-mirror-the-backlog-into-basira-with-go2-backlog-sync.md) | Mirror the backlog into Basira with go2 backlog sync | 0-process | P1 | in-review | — | claude-fable-5.1 · `process/basira-sync` | [25](https://github.com/mostafaelkabir/TheGo2Assistant/pull/25) | — |
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-019](tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Turn on tool-output redaction when the reader is not the owner | 2-gate | P1 | backlog | T-016 | — | — | [#19](../../../issues/19) |

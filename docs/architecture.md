@@ -121,6 +121,17 @@ Per-user identity, roles within a workspace, and permissions mirrored from
 the source are the next two steps (T-027, T-028) and hang off the same
 middleware seam.
 
+## The backlog is mirrored, not moved
+
+Work is tracked in two places on purpose. `backlog/` is the record: a
+ticket file is what CI validates, what a PR updates and what `## Outcome`
+survives in. Basira, the owner's local app, is where progress is watched
+and the next thing is chosen. `go2 backlog sync` pushes the files into
+Basira keyed on the ticket id and is idempotent, so it runs after every
+ticket edit like `go2 backlog index`. It is one-way because two writable
+copies of a status are how a merged PR ends up "in progress" somewhere;
+what Basira says that the file does not is a prompt to edit the file.
+
 ## Configuration is not relative to the working directory
 
 `go2` is installed as a tool and runs from anywhere, so config is read from

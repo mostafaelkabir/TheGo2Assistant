@@ -66,6 +66,17 @@ can learn from.
 Anything you learn that is out of scope becomes a *new* ticket with
 `go2 backlog new "title" --phase ...`, not a paragraph in the current one.
 
+## Basira
+
+The owner watches progress in [Basira](../docs/architecture.md), their local
+tracking app, not here. `go2 backlog sync` mirrors every ticket file into it
+as a work ticket under the `Go2Assistant` company and goal, keyed on the
+ticket id, and is run after every ticket edit alongside `go2 backlog index`.
+It is one-way: these files are the record CI enforces. A status moved in
+Basira is a prompt to update the file; a Basira ticket with no `T-NNN` ref
+is a request the owner typed into the app, and the sync reports it so a
+ticket gets written for it here.
+
 ## Writing a ticket
 
 Copy [`TEMPLATE.md`](TEMPLATE.md), or run:
@@ -107,5 +118,6 @@ go2 backlog                      # what is ready to pick up
 go2 backlog --all                # every open ticket with holder and blockers
 go2 backlog check                # validate every ticket and the index
 go2 backlog index                # regenerate BACKLOG.md
+go2 backlog sync [--dry-run]     # mirror the tickets into Basira
 go2 backlog new "title" --phase 1-drive [--priority P2]
 ```

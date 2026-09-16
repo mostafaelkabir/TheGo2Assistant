@@ -31,6 +31,7 @@ from go2.mcp_server import (
     transport_security,
 )
 from go2.scope import Scope
+from go2.security import loopback
 from go2.storage import repository as repo
 from go2.storage.db import connect
 from go2.tenancy import resolve_tenant_id
@@ -414,7 +415,7 @@ class TestBindCheck:
                 (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.20", 0)),
             ]
 
-        monkeypatch.setattr(mcp_server.socket, "getaddrinfo", lan)
+        monkeypatch.setattr(loopback.socket, "getaddrinfo", lan)
         with pytest.raises(MissingTokenError):
             check_bind(host="localhost", token="")
 
@@ -422,7 +423,7 @@ class TestBindCheck:
         def unresolvable(*_args: Any, **_kwargs: Any) -> list[tuple[Any, ...]]:
             raise socket.gaierror
 
-        monkeypatch.setattr(mcp_server.socket, "getaddrinfo", unresolvable)
+        monkeypatch.setattr(loopback.socket, "getaddrinfo", unresolvable)
         with pytest.raises(MissingTokenError):
             check_bind(host="no-such-host.invalid", token="")
 

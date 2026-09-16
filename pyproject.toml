@@ -20,6 +20,7 @@ dependencies = [
     "typer>=0.15",
     "logfire>=3.0",
     "mcp>=1.2",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
