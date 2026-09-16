@@ -8,16 +8,27 @@ breaking any other test.
 
 from __future__ import annotations
 
+import hmac
+import logging
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.testclient import TestClient
 
+from go2 import mcp_server
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.jobs.ingest import ingest_document
-from go2.mcp_server import mcp, transport_security
+from go2.mcp_server import (
+    BearerToken,
+    MissingTokenError,
+    build_http_app,
+    check_bind,
+    mcp,
+    transport_security,
+)
 from go2.scope import Scope
 from go2.storage import repository as repo
 from go2.storage.db import connect
@@ -186,3 +197,177 @@ class TestHttpTransport:
     def test_an_unlisted_host_is_not_accepted(self) -> None:
         settings = transport_security(host="127.0.0.1", port=8765, allowed_hosts=[])
         assert "evil.example:8765" not in (settings.allowed_hosts or [])
+
+
+TOKEN = "correct-horse-battery-staple"
+# The unauthenticated wide bind these tests exist to refuse.
+ALL_INTERFACES = "0.0.0.0"  # noqa: S104 -- the bind under test, never one the tests perform.
+JSONRPC_HEADERS = {
+    "accept": "application/json, text/event-stream",
+    "content-type": "application/json",
+}
+
+
+def _tools_call(name: str, **arguments: Any) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    }
+
+
+class TestBearerAuth:
+    """The token in front of `go2 serve --http`.
+
+    Driven in-process through the ASGI app rather than over a socket, with the
+    search tool replaced by a stub that records whether it ran: the question is
+    whether a request gets past the gate, not what retrieval returns.
+    """
+
+    @pytest.fixture
+    def tool_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        calls: list[dict[str, Any]] = []
+
+        def stub(query: str, **kwargs: Any) -> dict[str, Any]:
+            calls.append({"query": query, **kwargs})
+            return {"passages": [], "sufficient_evidence": False, "guidance": "stub"}
+
+        monkeypatch.setattr(mcp_server, "_search_documents", stub)
+        return calls
+
+    @pytest.fixture
+    def client(self) -> Iterator[TestClient]:
+        app = build_http_app(
+            host="127.0.0.1", port=8765, allowed_hosts=[], token=TOKEN, json_response=True
+        )
+        # base_url sets the Host header; the default `testserver` would be
+        # refused by DNS-rebinding protection and test that instead of auth.
+        with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+            yield client
+
+    def test_a_request_without_a_token_is_rejected(
+        self, client: TestClient, tool_calls: list[dict[str, Any]]
+    ) -> None:
+        response = client.post(
+            "/mcp", json=_tools_call("search_documents", query="anything"), headers=JSONRPC_HEADERS
+        )
+        assert response.status_code == 401
+        # The challenge tells a well-behaved client what is missing.
+        assert response.headers["www-authenticate"].startswith("Bearer")
+        # ...and the tool never ran: the gate is before the tools, not inside them.
+        assert tool_calls == []
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            "Bearer wrong-token",
+            f"Bearer {TOKEN}x",  # a correct prefix is not a match
+            f"Bearer {TOKEN[:-1]}",
+            f"Basic {TOKEN}",  # right secret, wrong scheme
+            TOKEN,  # no scheme at all
+        ],
+    )
+    def test_a_wrong_token_is_rejected(
+        self, client: TestClient, tool_calls: list[dict[str, Any]], header: str
+    ) -> None:
+        response = client.post(
+            "/mcp",
+            json=_tools_call("search_documents", query="anything"),
+            headers={**JSONRPC_HEADERS, "authorization": header},
+        )
+        assert response.status_code == 401
+        assert tool_calls == []
+
+    def test_a_valid_token_reaches_the_tools(
+        self, client: TestClient, tool_calls: list[dict[str, Any]]
+    ) -> None:
+        response = client.post(
+            "/mcp",
+            json=_tools_call("search_documents", query="what is the notice period?"),
+            headers={**JSONRPC_HEADERS, "authorization": f"Bearer {TOKEN}"},
+        )
+        assert response.status_code == 200
+        assert [c["query"] for c in tool_calls] == ["what is the notice period?"]
+
+    def test_the_token_is_compared_in_constant_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A plain `==` returns at the first differing byte, which leaks how
+        # much of a guess was right. The comparison has to go through
+        # hmac.compare_digest, over digests so length does not leak either.
+        seen: list[tuple[bytes, bytes]] = []
+
+        def spy(a: bytes, b: bytes) -> bool:
+            seen.append((a, b))
+            return hmac.compare_digest(a, b)
+
+        monkeypatch.setattr(mcp_server, "compare_digest", spy)
+        gate = BearerToken(_never_called, token=TOKEN)
+        scope = {"type": "http", "headers": [(b"authorization", b"Bearer " + TOKEN[:3].encode())]}
+        assert gate._authorised(scope) is False  # noqa: SLF001 -- the comparison is the unit under test.
+        assert len(seen) == 1
+        left, right = seen[0]
+        assert len(left) == len(right) == 32  # sha256 digests, not the raw strings
+        assert TOKEN.encode() not in (left, right)
+
+    def test_the_token_never_appears_in_logs_or_traces(
+        self,
+        client: TestClient,
+        tool_calls: list[dict[str, Any]],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Traces are written by the tools from their own arguments, so the
+        # header cannot reach one unless it reaches the tool; the stub records
+        # exactly what the tool was given.
+        caplog.set_level(logging.DEBUG)
+        wrong = client.post(
+            "/mcp",
+            json=_tools_call("search_documents", query="q"),
+            headers={**JSONRPC_HEADERS, "authorization": "Bearer not-the-token-either"},
+        )
+        right = client.post(
+            "/mcp",
+            json=_tools_call("search_documents", query="q"),
+            headers={**JSONRPC_HEADERS, "authorization": f"Bearer {TOKEN}"},
+        )
+        assert wrong.status_code == 401
+        assert right.status_code == 200
+        assert TOKEN not in caplog.text
+        assert "not-the-token-either" not in caplog.text
+        assert TOKEN not in wrong.text
+        assert "not-the-token-either" not in wrong.text
+        assert TOKEN not in right.text
+        assert TOKEN not in repr(tool_calls)
+
+    def test_websocket_and_lifespan_scopes_pass_through(self) -> None:
+        # Only HTTP requests carry a bearer token; refusing the lifespan scope
+        # would stop the session manager from ever starting.
+        gate = BearerToken(_never_called, token=TOKEN)
+        assert gate._authorised({"type": "http", "headers": []}) is False  # noqa: SLF001 -- unit under test.
+
+    def test_an_empty_token_cannot_wrap_the_app(self) -> None:
+        # An empty expected value would accept an empty header, i.e. nothing.
+        with pytest.raises(ValueError, match="non-empty"):
+            BearerToken(_never_called, token="")
+
+
+async def _never_called(_scope: Any, _receive: Any, _send: Any) -> None:  # pragma: no cover
+    msg = "the wrapped app must not run"
+    raise AssertionError(msg)
+
+
+class TestBindCheck:
+    """Binding beyond loopback without a token is refused before anything listens."""
+
+    @pytest.mark.parametrize("host", [ALL_INTERFACES, "172.17.0.1", "192.168.1.20", "::"])
+    def test_binding_beyond_loopback_without_a_token_refuses_to_start(self, host: str) -> None:
+        with pytest.raises(MissingTokenError, match="GO2_HTTP_TOKEN"):
+            check_bind(host=host, token="")
+        with pytest.raises(MissingTokenError):
+            build_http_app(host=host, port=8765, allowed_hosts=[], token="")
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+    def test_loopback_is_allowed_without_a_token(self, host: str) -> None:
+        check_bind(host=host, token="")
+
+    def test_a_token_permits_a_wider_bind(self) -> None:
+        check_bind(host=ALL_INTERFACES, token=TOKEN)

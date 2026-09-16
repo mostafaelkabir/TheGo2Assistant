@@ -6,7 +6,7 @@ phase: 2-gate
 priority: P0
 blocked_by: []
 github_issue: 16
-owner: Claude Fable 5.1 (for Mostafa Elkabir)
+owner: claude-fable-5.1
 branch: feat/http-auth
 pr:
 created: 2026-09-03

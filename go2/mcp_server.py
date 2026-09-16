@@ -12,11 +12,17 @@ Run with ``go2 serve`` (stdio) or ``go2 serve --http`` (Streamable HTTP).
 
 from __future__ import annotations
 
-from typing import Any
+import hashlib
+import json
+from hmac import compare_digest
+from typing import TYPE_CHECKING, Any
 
 import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+
+if TYPE_CHECKING:
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
 from go2.tools.search import fetch_document as _fetch_document
 from go2.tools.search import list_documents as _list_documents
@@ -132,7 +138,133 @@ def transport_security(
     )
 
 
-def run_http(*, host: str, port: int, allowed_hosts: list[str]) -> None:
+# Interfaces only this machine can reach. Anything else is "beyond loopback"
+# and needs a token before the server will bind to it.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+class MissingTokenError(RuntimeError):
+    """Raised when ``--host`` reaches beyond this machine and no token is set."""
+
+    def __init__(self, host: str) -> None:
+        """Name the interface and the fix."""
+        super().__init__(
+            f"refusing to bind {host}: anything that can reach the port would read "
+            f"every document. Set GO2_HTTP_TOKEN to a secret (for example the output "
+            f"of `python -c 'import secrets; print(secrets.token_urlsafe(32))'`) and "
+            f"give the same value to the client, or bind 127.0.0.1."
+        )
+
+
+def check_bind(*, host: str, token: str) -> None:
+    """Refuse a bind that would serve the index unauthenticated.
+
+    Loopback is allowed without a token because only this machine can reach
+    it. Any other interface -- a Docker bridge, ``0.0.0.0``, a LAN address --
+    is refused, since binding it without a token is the failure the whole
+    ticket exists to prevent.
+
+    Raises:
+        MissingTokenError: If ``host`` is not loopback and ``token`` is empty.
+    """
+    if host not in LOOPBACK_HOSTS and not token:
+        raise MissingTokenError(host)
+
+
+def _digest(value: bytes) -> bytes:
+    return hashlib.sha256(value).digest()
+
+
+class BearerToken:
+    """ASGI middleware that answers 401 unless the request carries the token.
+
+    Auth answers *may you talk to this server*, nothing more. The tenant is
+    still chosen by the serving process, so a token is scoped to whatever that
+    process serves and never chooses a workspace itself; conflating the two
+    would let a token name a tenant, which is how one client reads another's
+    documents.
+
+    The comparison goes through ``hmac.compare_digest`` over fixed-length
+    digests, so neither the token's length nor how many leading bytes matched
+    shows in the response time. The presented value is never logged, echoed
+    or stored: the 401 body says only that a bearer token is required.
+    """
+
+    def __init__(self, app: ASGIApp, *, token: str) -> None:
+        """Wrap ``app`` so every HTTP request must present ``token``."""
+        if not token:
+            msg = "BearerToken needs a non-empty token; use the app unwrapped for none"
+            raise ValueError(msg)
+        self._app = app
+        self._expected = _digest(token.encode())
+
+    def _authorised(self, scope: Scope) -> bool:
+        header = next(
+            (value for name, value in scope.get("headers", []) if name == b"authorization"),
+            b"",
+        )
+        scheme, _, presented = header.strip().partition(b" ")
+        if scheme.lower() != b"bearer":
+            return False
+        return compare_digest(_digest(presented.strip()), self._expected)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Pass an authorised request through; answer anything else with 401."""
+        if scope["type"] != "http" or self._authorised(scope):
+            await self._app(scope, receive, send)
+            return
+        body = json.dumps({"error": "unauthorized", "detail": "a bearer token is required"})
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"www-authenticate", b'Bearer realm="go2assistant"'),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body.encode()})
+
+
+def build_http_app(
+    *,
+    host: str,
+    port: int,
+    allowed_hosts: list[str],
+    token: str,
+    json_response: bool = False,
+) -> ASGIApp:
+    """The ASGI application ``go2 serve --http`` runs.
+
+    Separate from :func:`run_http` so a test can drive it in-process, without
+    a socket. The token check wraps the whole application, so an
+    unauthenticated request is refused before the transport, the Host check
+    or any tool sees it.
+
+    Args:
+        host: Interface the server will bind; also the Host header it accepts.
+        port: Port it will bind.
+        allowed_hosts: Extra Host headers to accept.
+        token: Bearer token every request must carry. Empty means none, which
+            :func:`check_bind` allows only on loopback.
+        json_response: Answer with plain JSON rather than an event stream.
+    """
+    check_bind(host=host, token=token)
+    app: ASGIApp = mcp.streamable_http_app(
+        host=host,
+        # Stateless: each request stands alone, so several chat sessions can
+        # use one server without sharing or outliving a session.
+        stateless_http=True,
+        json_response=json_response,
+        transport_security=transport_security(host=host, port=port, allowed_hosts=allowed_hosts),
+    )
+    if token:
+        app = BearerToken(app, token=token)
+    return app
+
+
+def run_http(*, host: str, port: int, allowed_hosts: list[str], token: str) -> None:
     """Run the server over Streamable HTTP, for a client that cannot spawn it.
 
     A containerised chat UI is the case that needs this. Under stdio the client
@@ -143,25 +275,23 @@ def run_http(*, host: str, port: int, allowed_hosts: list[str]) -> None:
 
     Args:
         host: Interface to bind. Defaults to loopback; binding wider exposes
-            the whole index to anything that can reach the port, and there is
-            no authentication in front of it yet.
+            the whole index to anything that can reach the port, so it is
+            refused unless ``token`` is set.
         port: Port to bind.
         allowed_hosts: Host headers to accept, beyond ``host:port`` itself.
             DNS-rebinding protection rejects unrecognised Host headers, and a
             container reaching the Mac calls it ``host.docker.internal``, so
             that name has to be named explicitly or every request 400s.
+        token: Bearer token every request must present; empty for none.
+
+    Raises:
+        MissingTokenError: If ``host`` is not loopback and ``token`` is empty.
     """
-    security = transport_security(host=host, port=port, allowed_hosts=allowed_hosts)
-    anyio.run(
-        lambda: mcp.run_streamable_http_async(
-            host=host,
-            port=port,
-            # Stateless: each request stands alone, so several chat sessions can
-            # use one server without sharing or outliving a session.
-            stateless_http=True,
-            transport_security=security,
-        )
-    )
+    import uvicorn  # noqa: PLC0415 -- a server dependency; keep it out of stdio and the CLI.
+
+    app = build_http_app(host=host, port=port, allowed_hosts=allowed_hosts, token=token)
+    config = uvicorn.Config(app, host=host, port=port, log_level=mcp.settings.log_level.lower())
+    anyio.run(uvicorn.Server(config).serve)
 
 
 if __name__ == "__main__":
