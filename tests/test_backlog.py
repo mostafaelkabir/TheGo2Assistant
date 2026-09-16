@@ -14,6 +14,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 import pytest
+from typer.testing import CliRunner
 
 from go2.backlog import (
     TicketError,
@@ -27,6 +28,7 @@ from go2.backlog import (
     slugify,
     write_index,
 )
+from go2.cli import app
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -107,6 +109,12 @@ def test_a_missing_section_is_rejected(tmp_path: Path) -> None:
 def test_an_empty_problem_is_rejected(tmp_path: Path) -> None:
     path = _write(tmp_path, "T-001-a-ticket.md", _ticket(problem=""))
     with pytest.raises(TicketError, match="wish"):
+        parse_ticket(path)
+
+
+def test_an_unknown_phase_is_rejected(tmp_path: Path) -> None:
+    path = _write(tmp_path, "T-001-a-ticket.md", _ticket().replace("1-drive", "1-drvie"))
+    with pytest.raises(TicketError, match="phase '1-drvie'"):
         parse_ticket(path)
 
 
@@ -220,6 +228,49 @@ def test_next_id_and_the_scaffold_round_trip(tmp_path: Path) -> None:
     # it counts.
     with pytest.raises(TicketError, match="wish"):
         parse_ticket(path)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "query_spreadsheet: answer from the rows",
+        "[urgent] a thing",
+        'Say "no" more often',
+        "# not a heading",
+    ],
+)
+def test_the_scaffold_survives_a_title_yaml_would_misread(tmp_path: Path, title: str) -> None:
+    text = new_ticket_text("T-001", title, phase="1-drive", today=TODAY)
+    path = _write(tmp_path, "T-001-x.md", text)
+    # The only complaint may be the empty sections -- never a YAML error.
+    with pytest.raises(TicketError, match="wish"):
+        parse_ticket(path)
+
+
+def test_new_scaffolds_the_next_id_through_the_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(tmp_path, "T-004-a-ticket.md", _ticket("T-004"))
+    monkeypatch.setattr("go2.backlog.default_root", lambda: tmp_path)
+    result = CliRunner().invoke(
+        app, ["backlog", "new", "Drop the chunks: all of them", "--phase", "1-drive"]
+    )
+    assert result.exit_code == 0, result.output
+    created = tmp_path / "tickets" / "T-005-drop-the-chunks-all-of-them.md"
+    assert created.exists()
+    assert "T-005" in result.output
+    with pytest.raises(TicketError, match="wish"):
+        parse_ticket(created)
+
+
+def test_new_refuses_an_unknown_phase_through_the_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(tmp_path, "T-004-a-ticket.md", _ticket("T-004"))
+    monkeypatch.setattr("go2.backlog.default_root", lambda: tmp_path)
+    result = CliRunner().invoke(app, ["backlog", "new", "x", "--phase", "9-nowhere"])
+    assert result.exit_code == 2
+    assert not list((tmp_path / "tickets").glob("T-005*"))
 
 
 def test_the_repository_backlog_is_consistent() -> None:

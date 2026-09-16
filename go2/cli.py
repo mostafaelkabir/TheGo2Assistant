@@ -629,6 +629,9 @@ def backlog_new(
     if priority not in backlog_store.PRIORITIES:
         typer.echo(f"priority must be one of {', '.join(backlog_store.PRIORITIES)}", err=True)
         raise typer.Exit(code=2)
+    if phase not in backlog_store.PHASES:
+        typer.echo(f"phase must be one of {', '.join(backlog_store.PHASES)}", err=True)
+        raise typer.Exit(code=2)
     try:
         tickets = backlog_store.load_tickets()
     except backlog_store.TicketError as exc:

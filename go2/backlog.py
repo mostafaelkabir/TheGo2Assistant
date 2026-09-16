@@ -38,6 +38,8 @@ STATUSES: tuple[str, ...] = ("backlog", "ready", "in-progress", "in-review", "do
 OPEN_STATUSES: frozenset[str] = frozenset({"backlog", "ready", "in-progress", "in-review"})
 CLOSED_STATUSES: frozenset[str] = frozenset({"done", "dropped"})
 PRIORITIES: tuple[str, ...] = ("P0", "P1", "P2", "P3")
+# The roadmap's phases. A ticket names one so the index groups honestly.
+PHASES: tuple[str, ...] = ("0-process", "1-drive", "2-gate", "3-accuracy", "4-second-connector")
 
 REQUIRED_SECTIONS: tuple[str, ...] = (
     "Problem",
@@ -173,6 +175,10 @@ def _validated_meta(meta: dict[str, Any], path: Path) -> dict[str, Any]:
         (
             meta["priority"] in PRIORITIES,
             f"priority {meta['priority']!r} is not one of {', '.join(PRIORITIES)}",
+        ),
+        (
+            meta["phase"] in PHASES,
+            f"phase {meta['phase']!r} is not one of {', '.join(PHASES)}",
         ),
         (
             isinstance(meta.get("blocked_by") or [], list)
@@ -355,7 +361,8 @@ def _row(t: Ticket) -> str:
     pr = t.pr or "—"
     if t.pr and t.pr.startswith("http"):
         pr = f"[{t.pr.rsplit('/', 1)[-1]}]({t.pr})"
-    issue = f"[#{t.github_issue}](../../issues/{t.github_issue})" if t.github_issue else "—"
+    # Resolved from blob/<ref>/backlog/BACKLOG.md, so three levels up is the repository.
+    issue = f"[#{t.github_issue}](../../../issues/{t.github_issue})" if t.github_issue else "—"
     return (
         f"| [{t.id}]({t.link}) | {t.title} | {t.phase} | {t.priority} | {t.status} "
         f"| {blockers} | {holder} | {pr} | {issue} |"
@@ -425,9 +432,12 @@ def new_ticket_text(
 ) -> str:
     """The skeleton of a new ticket, ready to be filled in."""
     stamp = (today or datetime.now(tz=UTC).date()).isoformat()
+    # Through the YAML emitter, so a colon or a bracket in the title cannot
+    # produce a file the parser then refuses.
+    title_line = yaml.safe_dump({"title": title}, allow_unicode=True, width=10_000).strip()
     return f"""---
 id: {ticket_id}
-title: {title}
+{title_line}
 status: backlog
 phase: {phase}
 priority: {priority}
