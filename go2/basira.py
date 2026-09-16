@@ -184,8 +184,10 @@ def sync(
     """
     owns = client is None
     http = client or httpx.Client(base_url=target.url, timeout=_TIMEOUT)
-    report = SyncReport()
-    open_ids = {t.id for t in tickets if t.is_open}
+    run = _Run(
+        http=http, target=target, open_ids={t.id for t in tickets if t.is_open}, dry_run=dry_run
+    )
+    report = run.report
     try:
         # The API filters by company; the client-side check keeps a Basira
         # that ignored the parameter from pulling other clients' tickets in.
@@ -196,8 +198,7 @@ def sync(
         ]
         by_ref = _index(existing, report)
         for ticket in tickets:
-            wanted = desired(ticket, target, open_ids=open_ids)
-            _push(http, ticket, wanted, by_ref.get(ticket.id), report, dry_run=dry_run)
+            run.push(ticket, by_ref.get(ticket.id))
     finally:
         if owns:
             http.close()
@@ -218,33 +219,36 @@ def _index(existing: list[dict[str, Any]], report: SyncReport) -> dict[str, dict
     return by_ref
 
 
-def _push(
-    http: httpx.Client,
-    ticket: Ticket,
-    wanted: dict[str, Any],
-    current: dict[str, Any] | None,
-    report: SyncReport,
-    *,
-    dry_run: bool,
-) -> None:
-    """Create, update or leave one ticket, and record which."""
-    proofs = _proofs(current, ticket)
-    if proofs is not None:
-        wanted["proofs"] = proofs
-    if current is None:
-        report.created.append(ticket.id)
-        if not dry_run:
-            _send(http, "POST", "/work-tickets", wanted)
-        return
-    changed = differences(current, wanted)
-    if not changed and proofs is None:
-        report.unchanged.append(ticket.id)
-        return
-    report.updated.append(ticket.id)
-    if changed:
-        report.changes[ticket.id] = changed
-    if not dry_run:
-        _send(http, "PUT", f"/work-tickets/{current['id']}", wanted)
+@dataclass
+class _Run:
+    """One sync pass: the client, where it writes, and what it has done."""
+
+    http: httpx.Client
+    target: Target
+    open_ids: set[str]
+    dry_run: bool
+    report: SyncReport = field(default_factory=SyncReport)
+
+    def push(self, ticket: Ticket, current: dict[str, Any] | None) -> None:
+        """Create, update or leave one ticket, and record which."""
+        wanted = desired(ticket, self.target, open_ids=self.open_ids)
+        proofs = _proofs(current, ticket)
+        if proofs is not None:
+            wanted["proofs"] = proofs
+        if current is None:
+            self.report.created.append(ticket.id)
+            if not self.dry_run:
+                _send(self.http, "POST", "/work-tickets", wanted)
+            return
+        changed = differences(current, wanted)
+        if not changed and proofs is None:
+            self.report.unchanged.append(ticket.id)
+            return
+        self.report.updated.append(ticket.id)
+        if changed:
+            self.report.changes[ticket.id] = changed
+        if not self.dry_run:
+            _send(self.http, "PUT", f"/work-tickets/{current['id']}", wanted)
 
 
 def _get(http: httpx.Client, path: str, **params: str) -> list[dict[str, Any]]:
