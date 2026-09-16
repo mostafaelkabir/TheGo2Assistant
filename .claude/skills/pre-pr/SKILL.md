@@ -142,8 +142,8 @@ Commit, push, and open the PR. The body names the ticket id, what changed,
 and what the reviewer flagged along with what you did about it.
 
 Then move the ticket: `status: in-review`, `pr:` set to the PR URL, a Work
-log line, `updated:` bumped, and `go2 backlog index`. Commit that to the same
-branch and push again, so the PR carries its own ticket update.
+log line, `updated:` bumped, `go2 backlog index` and `go2 backlog sync`. Commit
+that to the same branch and push again, so the PR carries its own ticket update.
 
 After the merge, the ticket is closed on `main`: `status: done`, `closed:`,
 and a written `## Outcome` with the success metrics as measured.

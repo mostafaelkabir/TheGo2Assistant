@@ -22,6 +22,11 @@ version:
    with the success metrics as measured. Commit that to `main`.
 5. Run `go2 backlog index` after every ticket edit and commit `BACKLOG.md`
    with it. The fast tests fail on a stale index or a malformed ticket.
+6. Run `go2 backlog sync` after every ticket edit too. It mirrors the ticket
+   files into Basira, the owner's local tracking app, where progress is
+   watched and work is picked up. The ticket file is the record; Basira
+   shows it. A Basira ticket with no `T-NNN` ref is a request from the
+   owner: write the repository ticket for it, then sync.
 
 A fix small enough to describe fully in its commit message does not need a
 ticket. "Small enough" means a reviewer would not ask why.
@@ -103,6 +108,7 @@ go2 serve --http --port 8765        # ...over Streamable HTTP, for a chat UI
 go2 backlog                         # tickets ready to pick up
 go2 backlog check                   # validate tickets and the index (CI runs this)
 go2 backlog index                   # regenerate backlog/BACKLOG.md
+go2 backlog sync [--dry-run]        # mirror the tickets into Basira
 go2 backlog new "title" --phase 1-drive
 
 uv run pytest                       # full suite

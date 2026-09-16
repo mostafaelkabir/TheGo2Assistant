@@ -1,0 +1,230 @@
+# Copyright (c) 2026 Mostafa Elkabir. Licensed under the BSD 2-Clause License.
+"""Mirror the backlog into Basira, the owner's local tracking app.
+
+The repository's ``backlog/`` stays the record: it is what CI checks and
+what a pull request updates. Basira is where the owner watches progress and
+decides what is next, so every ticket file is pushed there as a work ticket
+under one company and one project goal, keyed on ``ticket_ref`` = the
+ticket id. The push is idempotent -- a second run with nothing changed makes
+no write -- so it can follow every ticket edit the way ``go2 backlog index``
+does.
+
+One direction only. A status moved in Basira is a prompt for whoever picks
+the work up, not a write into the ticket file; and a Basira ticket with no
+``T-NNN`` ref is reported, so a request the owner types into the app becomes
+a repository ticket rather than being lost.
+
+Basira answers on loopback without authentication and holds only ticket
+text, so nothing here passes through the egress guard: no document content
+is involved and nothing leaves the machine.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+import httpx
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from go2.backlog import Ticket
+
+# Basira's own vocabulary, read from its OpenAPI schema and the values in use.
+STATUS = {
+    "backlog": "backlog",
+    "ready": "todo",
+    "in-progress": "in_progress",
+    "in-review": "review",
+    "done": "done",
+    "dropped": "done",
+}
+PRIORITY = {"P0": "urgent", "P1": "high", "P2": "medium", "P3": "low"}
+# Fields the mirror owns on a Basira ticket. Anything else there (time logged,
+# comments, proofs the owner attached by hand) is left alone.
+OWNED = (
+    "company_id",
+    "linked_goal_id",
+    "title",
+    "description",
+    "type",
+    "status",
+    "priority",
+    "ticket_ref",
+    "tags",
+    "notes",
+)
+TICKET_REF = re.compile(r"^T-\d{3}$")
+_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
+
+
+class BasiraError(RuntimeError):
+    """Basira could not be reached or refused a request."""
+
+
+@dataclass(frozen=True, slots=True)
+class Target:
+    """Where the mirror writes: one Basira, one company, one goal."""
+
+    url: str
+    company_id: str
+    goal_id: str
+
+
+@dataclass
+class SyncReport:
+    """What one run did, or would do under ``dry_run``."""
+
+    created: list[str] = field(default_factory=list)
+    updated: list[str] = field(default_factory=list)
+    unchanged: list[str] = field(default_factory=list)
+    # Titles of Basira tickets in the company that carry no repository id.
+    unmatched: list[str] = field(default_factory=list)
+
+    @property
+    def writes(self) -> int:
+        """How many requests changed something."""
+        return len(self.created) + len(self.updated)
+
+
+def desired(ticket: Ticket, target: Target, *, open_ids: set[str]) -> dict[str, Any]:
+    """The Basira ticket a repository ticket should be mirrored as.
+
+    Args:
+        ticket: The parsed ticket file.
+        target: Company and goal to file it under.
+        open_ids: Ids of every ticket still open, to decide the ``blocked`` tag.
+    """
+    tags = [ticket.phase]
+    if any(blocker in open_ids for blocker in ticket.blocked_by):
+        tags.append("blocked")
+    if ticket.status == "dropped":
+        tags.append("dropped")
+
+    parts = []
+    for heading in ("Problem", "Definition"):
+        text = ticket.sections.get(heading, "").strip()
+        if text:
+            parts.append(f"## {heading}\n\n{text}")
+    parts.append(f"Ticket file: backlog/{ticket.link}")
+    if ticket.github_issue:
+        parts.append(f"GitHub issue: #{ticket.github_issue}")
+
+    notes = [
+        f"{name}: {value}"
+        for name, value in (("owner", ticket.owner), ("branch", ticket.branch), ("pr", ticket.pr))
+        if value
+    ]
+
+    return {
+        "company_id": target.company_id,
+        "linked_goal_id": target.goal_id,
+        "title": f"{ticket.id} {ticket.title}",
+        "description": "\n\n".join(parts),
+        "type": "planning" if ticket.phase == "0-process" else "code",
+        "status": STATUS[ticket.status],
+        "priority": PRIORITY[ticket.priority],
+        "ticket_ref": ticket.id,
+        "tags": tags,
+        "notes": "\n".join(notes),
+    }
+
+
+def _differs(existing: dict[str, Any], wanted: dict[str, Any]) -> bool:
+    return any(existing.get(key) != wanted[key] for key in OWNED)
+
+
+def _proofs(existing: dict[str, Any] | None, ticket: Ticket) -> list[dict[str, str]] | None:
+    """Add the PR as a proof once, without touching proofs added by hand."""
+    if not ticket.pr:
+        return None
+    current = list((existing or {}).get("proofs") or [])
+    if any(p.get("url") == ticket.pr for p in current):
+        return None
+    return [*current, {"url": ticket.pr, "label": "Pull request"}]
+
+
+def sync(
+    tickets: Sequence[Ticket],
+    target: Target,
+    *,
+    dry_run: bool = False,
+    client: httpx.Client | None = None,
+) -> SyncReport:
+    """Push every ticket to Basira, creating or updating by ``ticket_ref``.
+
+    Args:
+        tickets: The repository's tickets, as ``go2.backlog.load_tickets`` returns them.
+        target: Basira, company and goal to write under.
+        dry_run: Report the plan and make no write.
+        client: An HTTP client to use instead of a real one, for tests.
+
+    Returns:
+        What was created, updated, left alone, and what Basira holds that the
+        repository does not.
+
+    Raises:
+        BasiraError: If Basira cannot be reached or refuses a request. Each
+            ticket is a single request, so a failure never leaves one half
+            written.
+    """
+    owns = client is None
+    http = client or httpx.Client(base_url=target.url, timeout=_TIMEOUT)
+    report = SyncReport()
+    open_ids = {t.id for t in tickets if t.is_open}
+    try:
+        existing = [
+            t for t in _get(http, "/work-tickets") if t.get("company_id") == target.company_id
+        ]
+        by_ref = {
+            t["ticket_ref"]: t for t in existing if TICKET_REF.match(t.get("ticket_ref") or "")
+        }
+        report.unmatched = [
+            t["title"] for t in existing if not TICKET_REF.match(t.get("ticket_ref") or "")
+        ]
+        for ticket in tickets:
+            wanted = desired(ticket, target, open_ids=open_ids)
+            current = by_ref.get(ticket.id)
+            proofs = _proofs(current, ticket)
+            if proofs is not None:
+                wanted["proofs"] = proofs
+            if current is None:
+                report.created.append(ticket.id)
+                if not dry_run:
+                    _send(http, "POST", "/work-tickets", wanted)
+            elif _differs(current, wanted) or proofs is not None:
+                report.updated.append(ticket.id)
+                if not dry_run:
+                    _send(http, "PUT", f"/work-tickets/{current['id']}", wanted)
+            else:
+                report.unchanged.append(ticket.id)
+    finally:
+        if owns:
+            http.close()
+    return report
+
+
+def _get(http: httpx.Client, path: str) -> list[dict[str, Any]]:
+    try:
+        response = http.get(path)
+    except httpx.HTTPError as exc:
+        msg = f"could not reach Basira at {http.base_url}: {exc}"
+        raise BasiraError(msg) from exc
+    if response.status_code != httpx.codes.OK:
+        msg = f"Basira returned {response.status_code} for GET {path}: {response.text[:200]}"
+        raise BasiraError(msg)
+    body = response.json()
+    return list(body if isinstance(body, list) else body.get("items", []))
+
+
+def _send(http: httpx.Client, method: str, path: str, payload: dict[str, Any]) -> None:
+    try:
+        response = http.request(method, path, json=payload)
+    except httpx.HTTPError as exc:
+        msg = f"could not reach Basira at {http.base_url}: {exc}"
+        raise BasiraError(msg) from exc
+    if response.status_code >= httpx.codes.BAD_REQUEST:
+        msg = f"Basira returned {response.status_code} for {method} {path}: {response.text[:200]}"
+        raise BasiraError(msg)

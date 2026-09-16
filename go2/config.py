@@ -139,6 +139,13 @@ class Settings(BaseSettings):
     # case, which is how to move it with evidence rather than by feel.
     min_evidence_score: float = Field(default=0.30)
 
+    # Basira, the owner's local tracking app. `go2 backlog sync` mirrors the
+    # ticket files there as work tickets under one company and one goal. Both
+    # ids empty means the mirror is off; the url is loopback and unauthenticated.
+    basira_url: str = "http://127.0.0.1:8001"
+    basira_company_id: str = ""
+    basira_goal_id: str = ""
+
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")
 
