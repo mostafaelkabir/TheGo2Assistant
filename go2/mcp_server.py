@@ -209,9 +209,19 @@ class BearerToken:
         return compare_digest(_digest(presented.strip()), self._expected)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Pass an authorised request through; answer anything else with 401."""
-        if scope["type"] != "http" or self._authorised(scope):
+        """Pass lifespan and authorised HTTP through; refuse everything else.
+
+        Only the lifespan scope is exempt, because it is the server starting,
+        not a client talking. A websocket scope is closed rather than passed
+        through: nothing here serves websockets today, and "not http" must not
+        become the way around the token if something ever does.
+        """
+        if scope["type"] == "lifespan" or (scope["type"] == "http" and self._authorised(scope)):
             await self._app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await receive()  # the connect frame; a close before it is a protocol error
+            await send({"type": "websocket.close", "code": 1008})  # policy violation
             return
         body = json.dumps({"error": "unauthorized", "detail": "a bearer token is required"})
         await send(

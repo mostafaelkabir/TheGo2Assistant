@@ -36,7 +36,7 @@ from go2.tenancy import resolve_tenant_id
 from go2.tools.search import fetch_document, list_documents, search_documents
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, MutableMapping
 
 EXPECTED_TOOLS = {"search_documents", "fetch_document", "list_documents"}
 
@@ -338,9 +338,33 @@ class TestBearerAuth:
         assert TOKEN not in right.text
         assert TOKEN not in repr(tool_calls)
 
-    def test_websocket_and_lifespan_scopes_pass_through(self) -> None:
-        # Only HTTP requests carry a bearer token; refusing the lifespan scope
-        # would stop the session manager from ever starting.
+    async def test_the_lifespan_scope_passes_through_unauthenticated(self) -> None:
+        # Lifespan is the server starting, not a client talking; refusing it
+        # would stop the session manager from ever running.
+        reached: list[str] = []
+
+        async def inner(scope: Any, _receive: Any, _send: Any) -> None:
+            reached.append(scope["type"])
+
+        gate = BearerToken(inner, token=TOKEN)
+        await gate({"type": "lifespan"}, _no_messages, _drop)
+        assert reached == ["lifespan"]
+
+    async def test_a_websocket_is_closed_not_passed_through(self) -> None:
+        # "Not http" must not become the way around the token.
+        sent: list[dict[str, Any]] = []
+
+        async def connect() -> dict[str, Any]:
+            return {"type": "websocket.connect"}
+
+        async def record(message: MutableMapping[str, Any]) -> None:
+            sent.append(dict(message))
+
+        gate = BearerToken(_never_called, token=TOKEN)
+        await gate({"type": "websocket", "headers": []}, connect, record)
+        assert sent == [{"type": "websocket.close", "code": 1008}]
+
+    def test_a_request_with_no_header_at_all_is_unauthorised(self) -> None:
         gate = BearerToken(_never_called, token=TOKEN)
         assert gate._authorised({"type": "http", "headers": []}) is False  # noqa: SLF001 -- unit under test.
 
@@ -353,6 +377,15 @@ class TestBearerAuth:
 async def _never_called(_scope: Any, _receive: Any, _send: Any) -> None:  # pragma: no cover
     msg = "the wrapped app must not run"
     raise AssertionError(msg)
+
+
+async def _no_messages() -> dict[str, Any]:  # pragma: no cover
+    msg = "nothing should be received"
+    raise AssertionError(msg)
+
+
+async def _drop(_message: MutableMapping[str, Any]) -> None:
+    return
 
 
 class TestBindCheck:
