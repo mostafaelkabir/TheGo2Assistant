@@ -16,16 +16,19 @@ a repository ticket rather than being lost.
 
 Basira answers on loopback without authentication and holds only ticket
 text, so nothing here passes through the egress guard: no document content
-is involved and nothing leaves the machine.
+is involved and nothing leaves the machine. That exemption is conditioned on
+``GO2_BASIRA_URL`` staying local; pointed at a remote host this would be an
+egress path and would need the guard like any other.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
+from go2.backlog import ID_PATTERN
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -56,7 +59,6 @@ OWNED = (
     "tags",
     "notes",
 )
-TICKET_REF = re.compile(r"^T-\d{3}$")
 _TIMEOUT = httpx.Timeout(10.0, connect=3.0)
 
 
@@ -82,6 +84,13 @@ class SyncReport:
     unchanged: list[str] = field(default_factory=list)
     # Titles of Basira tickets in the company that carry no repository id.
     unmatched: list[str] = field(default_factory=list)
+    # Ids carried by more than one Basira ticket. Only one is kept in step;
+    # the rest are drift to clean up in the app.
+    duplicated: list[str] = field(default_factory=list)
+    # For each updated id, the owned fields that differed: name -> (basira,
+    # file). A status the owner moved in Basira shows up here before the file
+    # overwrites it, which is the prompt to update the file instead.
+    changes: dict[str, dict[str, tuple[Any, Any]]] = field(default_factory=dict)
 
     @property
     def writes(self) -> int:
@@ -132,8 +141,11 @@ def desired(ticket: Ticket, target: Target, *, open_ids: set[str]) -> dict[str, 
     }
 
 
-def _differs(existing: dict[str, Any], wanted: dict[str, Any]) -> bool:
-    return any(existing.get(key) != wanted[key] for key in OWNED)
+def differences(existing: dict[str, Any], wanted: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+    """Owned fields where Basira and the file disagree: name -> (basira, file)."""
+    return {
+        key: (existing.get(key), wanted[key]) for key in OWNED if existing.get(key) != wanted[key]
+    }
 
 
 def _proofs(existing: dict[str, Any] | None, ticket: Ticket) -> list[dict[str, str]] | None:
@@ -175,48 +187,76 @@ def sync(
     report = SyncReport()
     open_ids = {t.id for t in tickets if t.is_open}
     try:
+        # The API filters by company; the client-side check keeps a Basira
+        # that ignored the parameter from pulling other clients' tickets in.
         existing = [
-            t for t in _get(http, "/work-tickets") if t.get("company_id") == target.company_id
+            t
+            for t in _get(http, "/work-tickets", company_id=target.company_id)
+            if t.get("company_id") == target.company_id
         ]
-        by_ref = {
-            t["ticket_ref"]: t for t in existing if TICKET_REF.match(t.get("ticket_ref") or "")
-        }
-        report.unmatched = [
-            t["title"] for t in existing if not TICKET_REF.match(t.get("ticket_ref") or "")
-        ]
+        by_ref = _index(existing, report)
         for ticket in tickets:
             wanted = desired(ticket, target, open_ids=open_ids)
-            current = by_ref.get(ticket.id)
-            proofs = _proofs(current, ticket)
-            if proofs is not None:
-                wanted["proofs"] = proofs
-            if current is None:
-                report.created.append(ticket.id)
-                if not dry_run:
-                    _send(http, "POST", "/work-tickets", wanted)
-            elif _differs(current, wanted) or proofs is not None:
-                report.updated.append(ticket.id)
-                if not dry_run:
-                    _send(http, "PUT", f"/work-tickets/{current['id']}", wanted)
-            else:
-                report.unchanged.append(ticket.id)
+            _push(http, ticket, wanted, by_ref.get(ticket.id), report, dry_run=dry_run)
     finally:
         if owns:
             http.close()
     return report
 
 
-def _get(http: httpx.Client, path: str) -> list[dict[str, Any]]:
+def _index(existing: list[dict[str, Any]], report: SyncReport) -> dict[str, dict[str, Any]]:
+    """Basira tickets by repository id, noting what has none and what has two."""
+    by_ref: dict[str, dict[str, Any]] = {}
+    for t in existing:
+        ref = t.get("ticket_ref") or ""
+        if not ID_PATTERN.match(ref):
+            report.unmatched.append(t["title"])
+        elif ref in by_ref:
+            report.duplicated.append(ref)
+        else:
+            by_ref[ref] = t
+    return by_ref
+
+
+def _push(
+    http: httpx.Client,
+    ticket: Ticket,
+    wanted: dict[str, Any],
+    current: dict[str, Any] | None,
+    report: SyncReport,
+    *,
+    dry_run: bool,
+) -> None:
+    """Create, update or leave one ticket, and record which."""
+    proofs = _proofs(current, ticket)
+    if proofs is not None:
+        wanted["proofs"] = proofs
+    if current is None:
+        report.created.append(ticket.id)
+        if not dry_run:
+            _send(http, "POST", "/work-tickets", wanted)
+        return
+    changed = differences(current, wanted)
+    if not changed and proofs is None:
+        report.unchanged.append(ticket.id)
+        return
+    report.updated.append(ticket.id)
+    if changed:
+        report.changes[ticket.id] = changed
+    if not dry_run:
+        _send(http, "PUT", f"/work-tickets/{current['id']}", wanted)
+
+
+def _get(http: httpx.Client, path: str, **params: str) -> list[dict[str, Any]]:
     try:
-        response = http.get(path)
+        response = http.get(path, params=params)
     except httpx.HTTPError as exc:
         msg = f"could not reach Basira at {http.base_url}: {exc}"
         raise BasiraError(msg) from exc
     if response.status_code != httpx.codes.OK:
         msg = f"Basira returned {response.status_code} for GET {path}: {response.text[:200]}"
         raise BasiraError(msg)
-    body = response.json()
-    return list(body if isinstance(body, list) else body.get("items", []))
+    return list(response.json())
 
 
 def _send(http: httpx.Client, method: str, path: str, payload: dict[str, Any]) -> None:

@@ -14,9 +14,12 @@ from typing import Any
 
 import httpx
 import pytest
+from typer.testing import CliRunner
 
 from go2.backlog import Ticket
 from go2.basira import BasiraError, SyncReport, Target, desired, sync
+from go2.cli import app
+from go2.config import Settings, get_settings
 
 TARGET = Target(url="http://basira.test", company_id="company-1", goal_id="goal-1")
 
@@ -96,6 +99,39 @@ def test_an_existing_ticket_is_updated_not_duplicated() -> None:
     assert report.created == []
     assert len(basira.tickets) == 1
     assert basira.by_ref("T-001")["status"] == "in_progress"
+
+
+def test_an_update_names_the_field_that_differs() -> None:
+    # A status the owner moved in Basira shows up here before the file's
+    # value overwrites it: that line is the prompt to update the file.
+    basira = FakeBasira()
+    sync([_ticket(status="in-progress")], TARGET, client=basira.client())
+    basira.by_ref("T-001")["status"] = "review"
+    report = sync([_ticket(status="in-progress")], TARGET, client=basira.client())
+    assert report.changes == {"T-001": {"status": ("review", "in_progress")}}
+
+
+def test_duplicate_refs_in_basira_are_reported() -> None:
+    twice = {"company_id": "company-1", "ticket_ref": "T-001", "title": "x"}
+    basira = FakeBasira([{"id": "b-1", **twice}, {"id": "b-2", **twice}])
+    report = sync([], TARGET, client=basira.client())
+    assert report.duplicated == ["T-001"]
+    assert report.unmatched == []
+
+
+def test_an_unconfigured_mirror_is_off_not_broken(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `go2 backlog sync` ends every ticket-edit chain; a checkout without
+    # Basira (CI, another contributor) must pass through it, not fail on it.
+    monkeypatch.delenv("GO2_BASIRA_COMPANY_ID", raising=False)
+    monkeypatch.delenv("GO2_BASIRA_GOAL_ID", raising=False)
+    monkeypatch.setattr(Settings, "model_config", {**Settings.model_config, "env_file": None})
+    get_settings.cache_clear()
+    try:
+        result = CliRunner().invoke(app, ["backlog", "sync"])
+    finally:
+        get_settings.cache_clear()
+    assert result.exit_code == 0
+    assert "off" in result.output
 
 
 def test_an_unchanged_ticket_makes_no_request() -> None:

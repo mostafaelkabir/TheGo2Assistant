@@ -67,13 +67,17 @@ ids are configuration, not discovered by name at every run.
 - `test_a_dry_run_writes_nothing`
 - `test_basira_tickets_without_a_ref_are_reported`
 - `test_an_unreachable_basira_names_the_url`
+- `test_an_update_names_the_field_that_differs`
+- `test_duplicate_refs_in_basira_are_reported`
+- `test_an_unconfigured_mirror_is_off_not_broken`
 
 ## Design notes
 
 Basira has no auth on loopback and its API is the app's own; the base URL
 and the two ids live in configuration (`GO2_BASIRA_URL`,
 `GO2_BASIRA_COMPANY_ID`, `GO2_BASIRA_GOAL_ID`) so the mirror can be pointed
-elsewhere or switched off by leaving them empty. Nothing about documents
+elsewhere or switched off by leaving the ids empty, in which case the
+command says so and exits 0 so the edit chain it ends still passes. Nothing about documents
 leaves the machine: only ticket text goes to a loopback service, so the
 egress guard does not apply. The `ticket` skill and `CLAUDE.md` gain the
 sync step after every ticket edit, next to `go2 backlog index`.
@@ -83,5 +87,7 @@ sync step after every ticket edit, next to `go2 backlog index`.
 - 2026-09-16 — Opened and claimed on `process/basira-sync` after the owner
   asked for Basira as the tracking platform. Company and goal created in
   Basira by hand.
+- 2026-09-16 — Review: no blockers. Unconfigured now exits 0; updates name
+  the differing field; duplicate refs reported; id pattern shared with backlog.
 
 ## Outcome

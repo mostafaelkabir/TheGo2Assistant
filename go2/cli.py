@@ -644,12 +644,13 @@ def backlog_sync(
 
     settings = get_settings()
     if not (settings.basira_company_id and settings.basira_goal_id):
+        # Off, not broken: this runs at the end of every ticket-edit chain,
+        # and a contributor or CI without Basira must not fail there.
         typer.echo(
-            "Basira mirror is not configured: set GO2_BASIRA_COMPANY_ID and "
-            "GO2_BASIRA_GOAL_ID (and GO2_BASIRA_URL if not 127.0.0.1:8001).",
-            err=True,
+            "Basira mirror is off (GO2_BASIRA_COMPANY_ID and GO2_BASIRA_GOAL_ID unset); "
+            "nothing synced."
         )
-        raise typer.Exit(code=1)
+        return
     try:
         tickets = backlog_store.load_tickets()
     except backlog_store.TicketError as exc:
@@ -674,9 +675,19 @@ def backlog_sync(
         f"{'would update' if dry_run else 'updated'} {len(report.updated)}, "
         f"unchanged {len(report.unchanged)}"
     )
-    for label, ids in (("  created:", report.created), ("  updated:", report.updated)):
-        if ids:
-            typer.echo(f"{label} {', '.join(ids)}")
+    if report.created:
+        typer.echo(f"  created: {', '.join(report.created)}")
+    for ticket_id in report.updated:
+        fields = ", ".join(
+            f"{name} basira={before!r} file={after!r}"
+            for name, (before, after) in report.changes.get(ticket_id, {}).items()
+        )
+        typer.echo(f"  {ticket_id}: {fields or 'pull request added as proof'}")
+    if report.duplicated:
+        typer.echo(
+            "Duplicate refs in Basira, only one of each is kept in step: "
+            f"{', '.join(report.duplicated)}"
+        )
     if report.unmatched:
         typer.echo("In Basira but not in the repository -- write a ticket for each:")
         for title in report.unmatched:
