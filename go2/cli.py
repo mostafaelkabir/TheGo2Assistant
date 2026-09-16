@@ -12,6 +12,7 @@ from typing import Annotated, Any
 import typer
 from sqlalchemy import text
 
+from go2 import backlog as backlog_store
 from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.evaluation import (
@@ -555,6 +556,96 @@ def _facts(payload: dict[str, Any]) -> str:
 
 tenant_app = typer.Typer(help="Isolated workspaces. Each holds its own documents and index.")
 app.add_typer(tenant_app, name="tenant")
+
+backlog_app = typer.Typer(
+    help="The file-based ticket store under backlog/. Run with no subcommand to list ready work.",
+    invoke_without_command=True,
+)
+app.add_typer(backlog_app, name="backlog")
+
+
+def _ticket_line(t: backlog_store.Ticket) -> str:
+    holder = f"  [{t.owner} on {t.branch}]" if t.status == "in-progress" else ""
+    blockers = f"  blocked by {', '.join(t.blocked_by)}" if t.blocked_by and t.is_open else ""
+    return f"{t.id}  {t.priority}  {t.status:<11}  {t.phase:<18}  {t.title}{holder}{blockers}"
+
+
+@backlog_app.callback()
+def backlog_list(
+    ctx: typer.Context,
+    *,
+    all_open: Annotated[
+        bool, typer.Option("--all", help="Every open ticket, not only the ready ones.")
+    ] = False,
+) -> None:
+    """List tickets that are ready to be picked up."""
+    if ctx.invoked_subcommand is not None:
+        return
+    try:
+        tickets = backlog_store.load_tickets()
+    except backlog_store.TicketError as exc:
+        typer.echo(f"backlog is inconsistent: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    chosen = [t for t in tickets if t.is_open] if all_open else backlog_store.ready(tickets)
+    if not chosen:
+        typer.echo("Nothing ready. `go2 backlog --all` shows what is blocked or held.")
+        return
+    for t in chosen:
+        typer.echo(_ticket_line(t))
+    open_count = sum(1 for t in tickets if t.is_open)
+    typer.echo(f"\n{len(chosen)} shown of {open_count} open, {len(tickets)} total.")
+
+
+@backlog_app.command("check")
+def backlog_check() -> None:
+    """Validate every ticket and confirm BACKLOG.md is current."""
+    try:
+        tickets = backlog_store.check()
+    except backlog_store.TicketError as exc:
+        typer.echo(f"backlog check failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{len(tickets)} tickets valid, index current.")
+
+
+@backlog_app.command("index")
+def backlog_index() -> None:
+    """Regenerate BACKLOG.md from the ticket files."""
+    try:
+        target = backlog_store.write_index()
+    except backlog_store.TicketError as exc:
+        typer.echo(f"cannot build the index: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"wrote {target}")
+
+
+@backlog_app.command("new")
+def backlog_new(
+    title: Annotated[str, typer.Argument(help="One line, the way a commit subject would say it.")],
+    *,
+    phase: Annotated[str, typer.Option(help="Roadmap phase, e.g. 1-drive.")],
+    priority: Annotated[str, typer.Option(help="P0 gates something; P3 is a reminder.")] = "P2",
+) -> None:
+    """Scaffold a ticket with the next free id, then open it in your editor."""
+    if priority not in backlog_store.PRIORITIES:
+        typer.echo(f"priority must be one of {', '.join(backlog_store.PRIORITIES)}", err=True)
+        raise typer.Exit(code=2)
+    try:
+        tickets = backlog_store.load_tickets()
+    except backlog_store.TicketError as exc:
+        typer.echo(f"backlog is inconsistent, fix it first: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    ticket_id = backlog_store.next_id(tickets)
+    path = (
+        backlog_store.default_root() / "tickets" / f"{ticket_id}-{backlog_store.slugify(title)}.md"
+    )
+    path.write_text(
+        backlog_store.new_ticket_text(ticket_id, title, phase=phase, priority=priority),
+        encoding="utf-8",
+    )
+    typer.echo(f"{ticket_id}: {path}")
+    typer.echo(
+        "Fill in Problem, Definition, Success metrics and Test cases, then `go2 backlog index`."
+    )
 
 
 @tenant_app.command("list")

@@ -23,6 +23,18 @@ Stop if the branch is `main` — the work needs a branch first. Stop if the diff
 is empty. Uncommitted changes are part of the review; commit them or explain
 why they are excluded before continuing.
 
+Then find the ticket. Every change starts from one (`CLAUDE.md`, "no code
+without a ticket"):
+
+```bash
+grep -l "^branch: $(git branch --show-current)$" backlog/tickets/*.md
+```
+
+Stop if nothing matches and the diff is more than a commit message can
+explain: write the ticket now with `go2 backlog new`, claim it on this
+branch, and continue. Read the ticket's `## Test cases` — those are the tests
+the diff must contain, and `## Definition` says what it must not contain.
+
 ## 2. The toolchain
 
 Non-negotiable, per `CLAUDE.md`:
@@ -126,8 +138,15 @@ wrong, say why in your own words and let the human decide.
 
 ## 7. Open it
 
-Commit, push, and open the PR. The body names what changed, which issue it
-closes, and what the reviewer flagged along with what you did about it.
+Commit, push, and open the PR. The body names the ticket id, what changed,
+and what the reviewer flagged along with what you did about it.
+
+Then move the ticket: `status: in-review`, `pr:` set to the PR URL, a Work
+log line, `updated:` bumped, and `go2 backlog index`. Commit that to the same
+branch and push again, so the PR carries its own ticket update.
+
+After the merge, the ticket is closed on `main`: `status: done`, `closed:`,
+and a written `## Outcome` with the success metrics as measured.
 
 ```bash
 git push -u origin "$(git branch --show-current)"

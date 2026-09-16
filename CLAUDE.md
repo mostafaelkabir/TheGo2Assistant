@@ -2,6 +2,29 @@
 
 An assistant that answers questions about files in OneDrive and Google Drive.
 Architecture and rationale: `docs/architecture.md`. Read it before changing structure.
+What is planned and in what order: `docs/roadmap.md`. What exactly is being
+built, by whom, and whether it is done: `backlog/`.
+
+## Non-negotiable: no code without a ticket
+
+Every change starts from a ticket in `backlog/tickets/` and ends by updating
+it. The full lifecycle and the rules are in `backlog/README.md`; the short
+version:
+
+1. `go2 backlog` lists what is `ready`. Read the ticket file before starting.
+   If the work has no ticket, write one first (`go2 backlog new`) with a
+   problem statement, a definition of scope, success metrics and named test
+   cases. Empty sections are refused by `go2 backlog check`.
+2. Claim it: `status: in-progress`, `owner:`, `branch:`. Commit that first,
+   so a second agent fetching the branch list sees the claim.
+3. When the PR opens: `status: in-review`, `pr:`. The PR body names the id.
+4. When the PR merges: `status: done`, `closed:`, and a written `## Outcome`
+   with the success metrics as measured. Commit that to `main`.
+5. Run `go2 backlog index` after every ticket edit and commit `BACKLOG.md`
+   with it. The fast tests fail on a stale index or a malformed ticket.
+
+A fix small enough to describe fully in its commit message does not need a
+ticket. "Small enough" means a reviewer would not ask why.
 
 ## Non-negotiable: run the toolchain after every change
 
@@ -75,6 +98,10 @@ go2 docs --by-folder                # ...grouped by directory
 go2 status                          # what is indexed, and which model embedded it
 go2 serve                           # MCP server on stdio
 go2 serve --http --port 8765        # ...over Streamable HTTP, for a chat UI
+go2 backlog                         # tickets ready to pick up
+go2 backlog check                   # validate tickets and the index (CI runs this)
+go2 backlog index                   # regenerate backlog/BACKLOG.md
+go2 backlog new "title" --phase 1-drive
 
 uv run pytest                       # full suite
 uv run pytest -m "not slow"         # skip those needing a model or a database
