@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # instead, and nothing below go2.tenancy changes.
     tenant: str = "local"
 
+    # Bearer token a client must present to `go2 serve --http`. Answers "may
+    # you talk to this server", not "which workspace": the tenant above is
+    # chosen by the process, and a token grants access to whatever that
+    # process serves. Empty means no authentication, which is accepted on
+    # loopback and refused for any wider bind -- the server will not start.
+    http_token: SecretStr = SecretStr("")
+
     # Alibaba Model Studio, OpenAI-compatible surface.
     # Singapore endpoint: the Beijing one is cheaper but a different data
     # jurisdiction for company documents, and carries no free quota.

@@ -81,6 +81,8 @@ These are load-bearing. Changing one is a design decision, not a refactor.
 - Alibaba Model Studio, **Singapore endpoint only**. Beijing is a different data
   jurisdiction for company documents.
 - OAuth refresh tokens are Fernet-encrypted at rest. Never log a token or file content.
+- `go2 serve --http` beyond loopback requires `GO2_HTTP_TOKEN`. Auth says *may you
+  talk to this server*, never *which workspace*; the tenant stays with the process.
 
 ## Commands
 

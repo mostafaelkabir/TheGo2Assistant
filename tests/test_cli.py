@@ -337,6 +337,36 @@ class TestConfigLocation:
         assert self._env_sources()[-1] == ".env"
 
 
+# The unauthenticated wide bind the serve command must refuse.
+ALL_INTERFACES = "0.0.0.0"  # noqa: S104 -- the bind under test, never one the test performs.
+
+
+class TestServeRefusesUnauthenticatedWideBind:
+    """`serve --http --host 0.0.0.0` without GO2_HTTP_TOKEN exits before binding.
+
+    No database needed: the token check runs before the tenant lookup, so the
+    exit is on the missing token and nothing else.
+    """
+
+    def test_binding_beyond_loopback_without_a_token_refuses_to_start(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("GO2_HTTP_TOKEN", raising=False)
+        # A stray project-local .env could set the token; make sure only the
+        # environment is consulted.
+        monkeypatch.setattr(Settings, "model_config", {**Settings.model_config, "env_file": None})
+        get_settings.cache_clear()
+        try:
+            result = runner.invoke(
+                app, ["serve", "--http", "--host", ALL_INTERFACES, "--port", "8799"]
+            )
+        finally:
+            get_settings.cache_clear()
+        assert result.exit_code == 1
+        assert "GO2_HTTP_TOKEN" in result.output
+        assert ALL_INTERFACES in result.output
+
+
 @pytest.mark.slow
 class TestServeValidatesTenant:
     """`serve --http` refuses to start against a tenant that does not exist.

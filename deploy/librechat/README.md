@@ -16,12 +16,26 @@ for anything multi-user, and the same transport a hosted deployment needs
 later.
 
 One process per workspace, because a tenant is chosen by the environment of
-the serving process:
+the serving process. Each carries a bearer token that every request must
+present; generate one per process and give LibreChat the same values:
 
 ```bash
-GO2_TENANT=dawan go2 serve --http --port 8765 --allow-host host.docker.internal:8765
-GO2_TENANT=local go2 serve --http --port 8766 --allow-host host.docker.internal:8766
+export GO2_HTTP_TOKEN_DAWAN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
+export GO2_HTTP_TOKEN_LOCAL=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
+GO2_TENANT=dawan GO2_HTTP_TOKEN=$GO2_HTTP_TOKEN_DAWAN go2 serve --http --port 8765 --allow-host host.docker.internal:8765
+GO2_TENANT=local GO2_HTTP_TOKEN=$GO2_HTTP_TOKEN_LOCAL go2 serve --http --port 8766 --allow-host host.docker.internal:8766
 ```
+
+`librechat.yaml` sends `Authorization: Bearer ${GO2_HTTP_TOKEN_DAWAN}` and
+`${GO2_HTTP_TOKEN_LOCAL}`, read from LibreChat's own `.env`, so add both
+values there too. A request without the token gets 401 before any tool
+runs. The token answers *may you talk to this server*; it does not choose a
+workspace -- that is still the process's `GO2_TENANT`, so one token never
+reaches another process's documents.
+
+On loopback the token is optional: leave `GO2_HTTP_TOKEN` unset and only
+this machine can reach the port. Binding anything wider without one refuses
+to start.
 
 Each entry in `librechat.yaml` is named for the tenant it serves. The second is
 `local`, not `atmata`, because `local` still holds HaramBlur, Atmata and some
@@ -45,15 +59,16 @@ connections are refused. Bind to the bridge address there:
 
 ```bash
 BRIDGE=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
-GO2_TENANT=dawan go2 serve --http --host "$BRIDGE" --port 8765 \
+GO2_TENANT=dawan GO2_HTTP_TOKEN=$GO2_HTTP_TOKEN_DAWAN go2 serve --http --host "$BRIDGE" --port 8765 \
   --allow-host "host.docker.internal:8765" --allow-host "$BRIDGE:8765"
 ```
 
-Bind to the bridge rather than `0.0.0.0`: there is no authentication in front
-of this server, so `0.0.0.0` offers the entire index to anything that can
-reach the port, including other machines on the network. Even bound to the
-bridge, any container on that host can reach it -- firewall the port, and do
-not do this on a shared machine.
+Binding beyond loopback requires `GO2_HTTP_TOKEN`; without it the server
+exits with a message naming the fix rather than serving the index to the
+bridge. Still bind to the bridge rather than `0.0.0.0`: the token stops an
+unauthenticated reader, but a narrower bind means a leaked token is only
+usable from that host's containers rather than from the whole network.
+Firewall the port as well.
 
 `--allow-host` is not optional. DNS-rebinding protection rejects a Host header
 it does not recognise, and a container calls this machine
@@ -69,6 +84,8 @@ cp .env.example .env
 cp /path/to/Go2Assistant/deploy/librechat/librechat.yaml .
 cp /path/to/Go2Assistant/deploy/librechat/docker-compose.override.yml .
 echo "ALIBABA_API_KEY=sk-your-key" >> .env
+echo "GO2_HTTP_TOKEN_DAWAN=$GO2_HTTP_TOKEN_DAWAN" >> .env
+echo "GO2_HTTP_TOKEN_LOCAL=$GO2_HTTP_TOKEN_LOCAL" >> .env
 docker compose up -d --scale rag_api=0 --scale vectordb=0 mongodb meilisearch api
 ```
 
@@ -119,9 +136,11 @@ when you are not:
 - `GO2_PII_REDACT_TOOL_OUTPUT=true` masks PII in passages returned through the
   tools. Off by default because masking your own address out of your own
   contract helps nobody; on when the reader is not the data's owner.
-- `go2 serve --http` binds loopback by default. There is no authentication in
-  front of it. Binding wider exposes the whole index to anything that can reach
-  the port -- put a reverse proxy and auth there first.
+- `GO2_HTTP_TOKEN` is required for any bind beyond loopback and worth setting
+  on loopback too once another process on the machine is not yours. It is one
+  token per serving process, so every holder reads the whole workspace: per-user
+  identity and roles are T-027, and per-file permissions mirrored from Drive
+  are T-028.
 
 ## Checking it works
 

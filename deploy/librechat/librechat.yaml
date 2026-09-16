@@ -28,6 +28,10 @@ mcpServers:
   dawan:
     type: streamable-http
     url: http://host.docker.internal:8765/mcp
+    # The same value the `go2 serve` process was started with. Read from
+    # LibreChat's .env; a request without it is refused with 401.
+    headers:
+      Authorization: "Bearer ${GO2_HTTP_TOKEN_DAWAN}"
     timeout: 120000
     initTimeout: 20000
     # Injects the server's own instructions -- the abstention rule, the
@@ -45,6 +49,8 @@ mcpServers:
   local:
     type: streamable-http
     url: http://host.docker.internal:8766/mcp
+    headers:
+      Authorization: "Bearer ${GO2_HTTP_TOKEN_LOCAL}"
     timeout: 120000
     initTimeout: 20000
     serverInstructions: true

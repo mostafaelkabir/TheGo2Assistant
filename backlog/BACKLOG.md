@@ -10,7 +10,6 @@ How to work from this file: [README.md](README.md).
 
 | Id | Title | Phase | Pri | Status | Blocked by | Holder | PR | Issue |
 |---|---|---|---|---|---|---|---|---|
-| [T-016](tickets/T-016-authentication-in-front-of-go2-serve-http.md) | Authentication in front of go2 serve --http | 2-gate | P0 | ready | — | — | — | [#16](../../../issues/16) |
 | [T-010](tickets/T-010-encrypt-oauth-credentials-at-rest.md) | Encrypt OAuth credentials at rest | 1-drive | P1 | ready | — | — | — | [#10](../../../issues/10) |
 | [T-017](tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split local into real per-project workspaces | 2-gate | P1 | ready | — | — | — | [#17](../../../issues/17) |
 | [T-018](tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | 2-gate | P1 | ready | — | — | — | [#18](../../../issues/18) |
@@ -18,12 +17,15 @@ How to work from this file: [README.md](README.md).
 | [T-022](tickets/T-022-query-spreadsheet-tool.md) | query_spreadsheet: answer from the rows, not the summary | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-023](tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Grow the eval sets to several hundred questions from real use | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
+| [T-016](tickets/T-016-authentication-in-front-of-go2-serve-http.md) | Authentication in front of go2 serve --http | 2-gate | P0 | in-review | — | claude-fable-5.1 · `feat/http-auth` | [24](https://github.com/mostafaelkabir/TheGo2Assistant/pull/24) | [#16](../../../issues/16) |
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-019](tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Turn on tool-output redaction when the reader is not the owner | 2-gate | P1 | backlog | T-016 | — | — | [#19](../../../issues/19) |
+| [T-027](tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles: resolve the tenant from the principal | 2-gate | P1 | backlog | T-016, T-017 | — | — | — |
 | [T-013](tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the drive.file scope | 1-drive | P2 | backlog | T-012 | — | — | [#13](../../../issues/13) |
 | [T-014](tickets/T-014-incremental-sync-persist-and-resume-from-the-cursor.md) | Incremental sync: persist and resume from the cursor | 1-drive | P2 | backlog | T-012 | — | — | [#14](../../../issues/14) |
 | [T-015](tickets/T-015-deletions-must-drop-their-chunks.md) | Deletions must drop their chunks | 1-drive | P2 | backlog | T-014 | — | — | [#15](../../../issues/15) |
+| [T-028](tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions so a reader sees only files shared with them | 2-gate | P2 | backlog | T-027, T-012 | — | — | — |
 | [T-024](tickets/T-024-onedrive-connector-over-graph-delta.md) | OneDrive connector over Graph /delta | 4-second-connector | P3 | backlog | T-015 | — | — | — |
 | [T-026](tickets/T-026-hosted-deployment-behind-authentication.md) | Hosted deployment behind authentication | 4-second-connector | P3 | backlog | T-016, T-019 | — | — | — |
 

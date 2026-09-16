@@ -388,27 +388,37 @@ def serve(
         run_server()
         return
 
-    from go2.mcp_server import run_http  # noqa: PLC0415 -- defer the mcp import.
+    from go2.mcp_server import (  # noqa: PLC0415 -- defer the mcp import.
+        MissingTokenError,
+        check_bind,
+        run_http,
+    )
 
-    tenant = get_settings().tenant
-    # Resolve before binding. The tools resolve the tenant per call, so a
-    # misspelled GO2_TENANT would otherwise serve happily, let the client
-    # discover three tools, and fail only once per question -- turning an
-    # actionable startup error into a puzzle at the far end of a chat UI.
+    settings = get_settings()
+    token = settings.http_token.get_secret_value()
+    # Both checks happen before binding, so a misconfiguration fails once at
+    # startup rather than once per question at the far end of a chat UI.
+    # The token check comes first: it needs no database, and an unauthenticated
+    # bind beyond loopback is wrong whatever the tenant says.
+    try:
+        check_bind(host=host, token=token)
+    except MissingTokenError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    # The tools resolve the tenant per call, so a misspelled GO2_TENANT would
+    # otherwise serve happily and let the client discover three tools.
     try:
         resolve_tenant_id()
     except UnknownTenantError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"go2assistant MCP on http://{host}:{port}/mcp  (tenant: {tenant})")
-    if host not in {"127.0.0.1", "localhost"}:
-        typer.echo(
-            "warning: binding beyond loopback exposes the whole index -- "
-            "there is no authentication in front of this yet.",
-            err=True,
-        )
-    run_http(host=host, port=port, allowed_hosts=list(allow_host or []))
+    # Say whether auth is on, never what the token is.
+    auth = "bearer token" if token else "none, loopback only"
+    typer.echo(
+        f"go2assistant MCP on http://{host}:{port}/mcp  (tenant: {settings.tenant}, auth: {auth})"
+    )
+    run_http(host=host, port=port, allowed_hosts=list(allow_host or []), token=token)
 
 
 @app.command()
