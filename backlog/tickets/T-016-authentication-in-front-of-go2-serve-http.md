@@ -1,14 +1,14 @@
 ---
 id: T-016
 title: Authentication in front of go2 serve --http
-status: in-progress
+status: in-review
 phase: 2-gate
 priority: P0
 blocked_by: []
 github_issue: 16
 owner: claude-fable-5.1
 branch: feat/http-auth
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/24
 created: 2026-09-03
 updated: 2026-09-16
 closed:
@@ -58,5 +58,6 @@ A gate, not a feature: T-019 and any hosted deployment (T-026) depend on it.
 - 2026-09-16 — Bearer middleware, bind check and CLI wiring written with the six
   named tests. Opened T-027 (users and roles) and T-028 (source permissions)
   for what this ticket deliberately leaves out.
+- 2026-09-16 — Review found no blockers; two notes fixed. PR opened: https://github.com/mostafaelkabir/TheGo2Assistant/pull/24
 
 ## Outcome
