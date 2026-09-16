@@ -1,14 +1,14 @@
 ---
 id: T-000
 title: A file-based backlog, and no code without a ticket
-status: in-progress
+status: in-review
 phase: 0-process
 priority: P0
 blocked_by: []
 github_issue:
 owner: claude-fable-5.1
 branch: process/backlog-and-tickets
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/23
 created: 2026-09-16
 updated: 2026-09-16
 closed:
@@ -87,5 +87,7 @@ memorability; that is a convenience, not a rule.
 
 - 2026-09-16 — Ticket opened. Format, module, CLI, tests, seeded tickets and
   process docs written on `process/backlog-and-tickets`.
+- 2026-09-16 — Review found the scaffold wrote titles unquoted; fixed. PR #23
+  opened; ticket to in-review.
 
 ## Outcome
