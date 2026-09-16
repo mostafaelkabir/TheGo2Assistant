@@ -1,13 +1,13 @@
 ---
 id: T-016
 title: Authentication in front of go2 serve --http
-status: ready
+status: in-progress
 phase: 2-gate
 priority: P0
 blocked_by: []
 github_issue: 16
-owner:
-branch:
+owner: Claude Fable 5.1 (for Mostafa Elkabir)
+branch: feat/http-auth
 pr:
 created: 2026-09-03
 updated: 2026-09-16
@@ -54,5 +54,6 @@ A gate, not a feature: T-019 and any hosted deployment (T-026) depend on it.
 
 - 2026-09-03 — Opened as GitHub issue #16.
 - 2026-09-16 — Mirrored into the local backlog.
+- 2026-09-16 — Claimed on `feat/http-auth`.
 
 ## Outcome
