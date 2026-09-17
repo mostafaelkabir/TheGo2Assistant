@@ -18,11 +18,22 @@ Updated 2026-09-17.
 
 | | What | Tickets |
 |---|---|---|
-| **Now** | Google Drive end to end, and the process to build it with | T-000, T-010 → T-012 |
-| **Next** | The gate before anyone else touches it: auth, real workspaces, OCR, then users and roles | T-016, T-017, T-018, T-019, T-027, T-028 |
+| **Now** | Google Drive end to end: the product's core promise, and nothing has shipped for it yet | T-010 → T-012 |
+| **Next** | The gate before anyone else touches it: real workspaces, OCR, redaction, then the Dawan rehearsal that proves it | T-017, T-018, T-019, then T-030 |
 | **Then** | The rest of Drive: picker, incremental sync, deletions | T-013 → T-015 |
-| **Later** | Earn the accuracy claim: cross-language, spreadsheets, eval at scale | T-021, T-022, T-023, T-025 |
+| **Later** | Earn the accuracy claim: baselines, harvest, answer-level eval, cross-language, spreadsheets | T-033, T-032, T-031, T-021, T-022, T-023, T-025 |
+| **After the first client** | Users and roles, per-file permissions | T-027, T-028 |
 | **2027** | A second connector, hosted | T-024, T-026 |
+
+Done so far: T-000 (this process), T-016 (auth in front of HTTP), T-029
+(the Basira mirror).
+
+**The one thing that matters most:** T-010 → T-012 is a serial chain of
+three P1 tickets and nothing is claimed on it. Every other phase is
+sharpening a product whose defining feature does not exist yet. The gate
+tickets and the accuracy tickets are independent of it and can run in
+parallel on other agents, but the Drive chain should always have someone
+on it.
 
 ---
 
@@ -110,8 +121,7 @@ Drive files will reorder the rest better than this document can.
 | [T-017](../backlog/tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split `local` into real per-project workspaces | 92 HaramBlur + 20 Atmata + 5 test documents share one workspace. |
 | [T-018](../backlog/tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | Two Dawan files are image-only and unanswerable. |
 | [T-019](../backlog/tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Tool-output redaction when the reader is not the owner | The switch works; nothing turns it on. |
-| [T-027](../backlog/tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles | One token per process is one trust level; a company has many. |
-| [T-028](../backlog/tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions | Workspace membership shows every file, including ones Drive would refuse. |
+| [T-030](../backlog/tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness | The exit criterion: a rehearsed demo on real files, recorded. |
 
 T-016 shipped on 2026-09-16 (PR #24): a bearer token per serving process,
 and binding beyond loopback refuses to start without one.

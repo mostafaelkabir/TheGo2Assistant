@@ -36,10 +36,19 @@ returned; does the answer agree with `expect_text` (or refuse when
 answered-without-citation and answered-from-weights as counts, per
 workspace, alongside the retrieval numbers.
 
-Does not deliver: a new eval file format (reuses the existing cases),
-a judge for free-text quality beyond the three facts, or running this in
-CI (it calls a generation provider, so it is a `go2 evaluate --answers`
-run, recorded in the ticket that changed something).
+Ground truth is part of this ticket: the third fact needs something to
+compare against, and today 9 of 12 positive cases in `eval/questions.yaml`
+and 2 of 16 in `eval/dawan.yaml` carry no `expect_text`. Answer mode
+accepts only cases with `expect_text` or `expect_no_answer`, reports the
+count it skipped, and refuses to print a baseline while any case in the
+suite is skipped. The ticket populates `expect_text` for every existing
+positive case, each written after reading the document.
+
+Does not deliver: a new eval file format (adds nothing beyond the
+existing optional key), a judge for free-text quality beyond the three
+facts, or running this in CI (it calls a generation provider, so it is a
+`go2 evaluate --answers` run, recorded in the ticket that changed
+something).
 
 ## Success metrics
 
@@ -60,6 +69,8 @@ run, recorded in the ticket that changed something).
 - `test_a_refusal_on_an_expect_no_answer_case_passes`
 - `test_a_confident_answer_on_an_expect_no_answer_case_fails`
 - `test_the_judge_never_sees_document_text_that_did_not_pass_the_guard`
+- `test_a_case_without_ground_truth_is_skipped_and_counted`
+- `test_no_baseline_is_printed_while_any_case_is_skipped`
 
 ## Design notes
 
@@ -73,5 +84,8 @@ per run on the generation side.
 
 - 2026-09-17 — Opened in a product review: the only accuracy figure we can
   quote stops one step short of what the user sees.
+- 2026-09-17 — Review (Codex): most cases have no `expect_text`, so the
+  correctness judge would have gone false-green. Ground truth is now a
+  deliverable and a case without it is skipped and counted, never passed.
 
 ## Outcome

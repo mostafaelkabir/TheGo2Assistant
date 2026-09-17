@@ -33,8 +33,16 @@ case. `go2 evaluate` refuses a file containing an unreviewed candidate.
 A reviewed case is one where a person read the document and either kept
 the expected citation, corrected it, or marked `expect_no_answer`.
 
+The trace does not hold what this needs today: `Trace.save` truncates the
+label to 200 characters and the steps keep counts and scores, not the top
+citation. So the ticket first adds two persisted fields to the search
+trace -- the full question and the top citation (title and location, no
+passage text) -- with a migration, and the export reads those. Traces
+written before the migration are not exportable and the command says so.
+
 Does not deliver: automatic acceptance of a case (the harness would then
-measure whatever the system already does), or any new trace field.
+measure whatever the system already does), or storing passage text in the
+trace.
 
 ## Success metrics
 
@@ -51,18 +59,24 @@ measure whatever the system already does), or any new trace field.
 - `test_since_filters_by_trace_time`
 - `test_evaluate_refuses_an_unreviewed_candidate`
 - `test_a_refused_trace_exports_as_an_expect_no_answer_candidate`
+- `test_the_search_trace_persists_the_full_question_and_top_citation`
+- `test_a_pre_migration_trace_is_reported_not_exported`
 
 ## Design notes
 
 This is the mechanism T-023 needs to be achievable rather than heroic.
 T-023 stays the goal ticket (the number of cases); this one is the tool.
-Traces record query summaries only; check that the full question text is
-available before promising it, and if it is not, storing it is a design
-decision to record here first.
+Storing the full question in the trace is a data decision: a question can
+contain a name or a number. It stays inside the database with `tenant_id`
+and never leaves the machine, and the redaction that applies to tool
+output should apply to the trace label on the way in.
 
 ## Work log
 
 - 2026-09-17 — Opened in a product review as the missing step between
   invariant 8 and the size of the eval sets.
+- 2026-09-17 — Review (Codex): confirmed the trace keeps neither the full
+  question nor the citation. The "no new trace field" exclusion was wrong;
+  two persisted fields and a migration are now in scope.
 
 ## Outcome

@@ -30,10 +30,13 @@ number.
 A scripted, rehearsed demo and the checklist that gates it. Delivers:
 
 - `docs/demo-dawan.md`: ten questions chosen from Dawan's real files (at
-  least two answered from a scanned PDF, two from a spreadsheet figure, two
-  in Arabic, two that the corpus cannot answer and must be refused), the
-  expected citation for each, and the runbook to stand the demo up from a
-  clean checkout.
+  least two answered from a scanned PDF, two that only hybrid search
+  separates -- the near-identical CQ-XP1010 quotations -- two in Arabic,
+  two that the corpus cannot answer and must be refused), the expected
+  citation for each, and the runbook to stand the demo up from a clean
+  checkout. No question whose answer is a cell inside a spreadsheet:
+  `query_spreadsheet` (T-022) is not on the gate, and the demo must not
+  promise what the product cannot do that day.
 - The rehearsal run recorded in this ticket's Outcome: each question,
   what came back, pass or fail.
 - Every checklist item is a shipped ticket or a measured fact, not a
@@ -72,5 +75,9 @@ deployment. Per-user roles are the second client's problem.
 
 - 2026-09-17 — Opened in a product review: Phase 2 had four mechanisms and
   no exit criterion.
+- 2026-09-17 — Review (Codex): the question set asked for spreadsheet
+  figures, which T-022 says are locatable but not answerable. Removed
+  rather than blocking the gate on T-022; the quotation pair takes that
+  slot.
 
 ## Outcome
