@@ -1,7 +1,7 @@
 ---
 id: T-029
 title: Mirror the backlog into Basira with go2 backlog sync
-status: in-review
+status: done
 phase: 0-process
 priority: P1
 blocked_by: []
@@ -10,8 +10,8 @@ owner: claude-fable-5.1
 branch: process/basira-sync
 pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/25
 created: 2026-09-16
-updated: 2026-09-16
-closed:
+updated: 2026-09-17
+closed: 2026-09-16
 ---
 
 ## Problem
@@ -96,5 +96,30 @@ sync step after every ticket edit, next to `go2 backlog index`.
 - 2026-09-16 — Codex review: remote GO2_BASIRA_URL now refused (loopback check
   shared with the auth gate); half-configured ids are an error; a changed PR
   replaces the generated proof.
+- 2026-09-16 — PR #25 merged.
+- 2026-09-17 — Closed. Found still in-review the morning after the merge: the
+  close step was missed, which is the drift T-000 warned about.
 
 ## Outcome
+
+Shipped in PR #25: `go2 backlog sync [--dry-run]`, `go2/basira.py`, the
+three `GO2_BASIRA_*` settings, and the sync step in `CLAUDE.md` and the
+`ticket` skill.
+
+Success metrics as measured on 2026-09-17 against the live app:
+
+- Basira holds exactly one ticket per file: 20 files, 20 tickets, every
+  `ticket_ref` matching, statuses and priorities mapped as specified. A
+  dry run on the morning after reports `would create 0, would update 0,
+  unchanged 20`, so the mirror is idempotent.
+- Changing one file changes one Basira ticket: the update path names the
+  field that differs, covered by `test_an_update_names_the_field_that_differs`.
+- Basira down: covered by `test_an_unreachable_basira_names_the_url`;
+  each ticket is one request so nothing is half-written.
+- No network in the suite: the client runs against a fake transport.
+
+Left out, by design: pulling status back from Basira, comments, and time
+logging. One process gap surfaced immediately: this ticket itself sat in
+`in-review` for a night after its PR merged, because closing is a manual
+step on `main` and nothing reminds anyone. Worth a check that flags an
+`in-review` ticket whose PR is merged.

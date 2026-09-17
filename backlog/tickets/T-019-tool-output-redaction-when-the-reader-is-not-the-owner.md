@@ -1,7 +1,7 @@
 ---
 id: T-019
 title: Turn on tool-output redaction when the reader is not the owner
-status: backlog
+status: ready
 phase: 2-gate
 priority: P1
 blocked_by: [T-016]
@@ -10,7 +10,7 @@ owner:
 branch:
 pr:
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-17
 closed:
 ---
 
@@ -48,5 +48,6 @@ Depends on T-016 for the notion of a client-facing deployment.
 
 - 2026-09-03 — Opened as GitHub issue #19.
 - 2026-09-16 — Mirrored into the local backlog.
+- 2026-09-17 — T-016 shipped; unblocked and marked ready.
 
 ## Outcome
