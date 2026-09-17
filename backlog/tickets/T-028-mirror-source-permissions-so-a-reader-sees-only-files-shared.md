@@ -3,14 +3,14 @@ id: T-028
 title: Mirror source permissions so a reader sees only files shared with them
 status: backlog
 phase: 2-gate
-priority: P2
+priority: P3
 blocked_by: [T-027, T-012]
 github_issue:
 owner:
 branch:
 pr:
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 closed:
 ---
 
@@ -81,6 +81,12 @@ file, well inside the measured budget in `docs/roadmap.md`); Graph exposes
 them through `/permissions` on a drive item.
 
 ## Work log
+
+- 2026-09-17 — Product review: P2 → P3, for the same reason as T-027 and
+  one more: it needs live Drive sync (T-012) to have any permissions to
+  mirror, and `drive.file` scope means the user already chose what to
+  share. Revisit when a client asks for per-person visibility inside one
+  workspace.
 
 - 2026-09-16 — Opened while building T-016, as the second half of "access
   levels": T-027 is who may enter a workspace, this is what they see inside

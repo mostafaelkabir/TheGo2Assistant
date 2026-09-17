@@ -10,7 +10,7 @@ Ticket ids here are `T-NNN` and link to those files. Where a GitHub issue
 exists too, the ticket names it. A ticket names the test cases that define
 "done" — a ticket without them is a wish, not a ticket.
 
-Updated 2026-09-16.
+Updated 2026-09-17.
 
 ---
 
@@ -18,23 +18,40 @@ Updated 2026-09-16.
 
 | | What | Tickets |
 |---|---|---|
-| **Now** | Google Drive end to end, and the process to build it with | T-000, T-010 → T-012 |
-| **Next** | The gate before anyone else touches it: auth, real workspaces, OCR, then users and roles | T-016, T-017, T-018, T-019, T-027, T-028 |
+| **Now** | Google Drive end to end: the product's core promise, and nothing has shipped for it yet | T-010 → T-012 |
+| **Next** | The gate before anyone else touches it: real workspaces, OCR, redaction, then the Dawan rehearsal that proves it | T-017, T-018, T-019, then T-030 |
 | **Then** | The rest of Drive: picker, incremental sync, deletions | T-013 → T-015 |
-| **Later** | Earn the accuracy claim: cross-language, spreadsheets, eval at scale | T-021, T-022, T-023, T-025 |
+| **Later** | Earn the accuracy claim: baselines, harvest, answer-level eval, cross-language, spreadsheets | T-033, T-032, T-031, T-021, T-022, T-023, T-025 |
+| **After the first client** | Users and roles, per-file permissions | T-027, T-028 |
 | **2027** | A second connector, hosted | T-024, T-026 |
+
+Done so far: T-000 (this process), T-016 (auth in front of HTTP), T-029
+(the Basira mirror).
+
+**The one thing that matters most:** T-010 → T-012 is a serial chain of
+three P1 tickets and nothing is claimed on it. Every other phase is
+sharpening a product whose defining feature does not exist yet. The gate
+tickets and the accuracy tickets are independent of it and can run in
+parallel on other agents, but the Drive chain should always have someone
+on it.
 
 ---
 
 ## Phase 0 — The process
 
-*Done with [T-000](../backlog/tickets/T-000-file-based-backlog-and-ticket-process.md).*
+*Done: [T-000](../backlog/tickets/T-000-file-based-backlog-and-ticket-process.md)
+and [T-029](../backlog/tickets/T-029-mirror-the-backlog-into-basira-with-go2-backlog-sync.md).*
 
 The toolchain, the full suite and an agent review run before a PR exists
 (`/pre-pr`), and CI re-runs them on the PR. Work is planned in tickets
 before code is written, and the ticket is the record of what landed and what
 was measured, so several agents can share the queue without a service in the
-way. `go2 backlog check` keeps the files honest; the fast tests run it.
+way. `go2 backlog check` keeps the files honest; the fast tests run it. The
+tickets are mirrored into Basira, where progress is watched.
+
+One gap already seen: T-029 sat `in-review` for a night after its PR
+merged, because closing is a manual step on `main`. A check that flags an
+in-review ticket whose PR is merged would close it.
 
 ---
 
@@ -104,11 +121,25 @@ Drive files will reorder the rest better than this document can.
 | [T-017](../backlog/tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split `local` into real per-project workspaces | 92 HaramBlur + 20 Atmata + 5 test documents share one workspace. |
 | [T-018](../backlog/tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | Two Dawan files are image-only and unanswerable. |
 | [T-019](../backlog/tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Tool-output redaction when the reader is not the owner | The switch works; nothing turns it on. |
-| [T-027](../backlog/tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles | One token per process is one trust level; a company has many. |
-| [T-028](../backlog/tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions | Workspace membership shows every file, including ones Drive would refuse. |
+| [T-030](../backlog/tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness | The exit criterion: a rehearsed demo on real files, recorded. |
 
-T-016 is the one that gates the others: T-019 and any hosted deployment
-depend on knowing whether a request is trusted.
+T-016 shipped on 2026-09-16 (PR #24): a bearer token per serving process,
+and binding beyond loopback refuses to start without one.
+
+The phase ends with [T-030](../backlog/tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md):
+a rehearsed ten-question demo on Dawan's real files, on a machine that is
+not the developer's, with at least one live Drive document in the
+workspace. Until that rehearsal is recorded, the gate is not passed,
+whatever the ticket statuses say.
+
+**Deliberately after the first client:**
+[T-027](../backlog/tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md)
+(users and roles) and
+[T-028](../backlog/tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md)
+(per-file permissions from the source). Dawan is one workspace with one
+reader group, which one token per process serves honestly. Building
+multi-user access before a single Drive document is searchable would put
+the platform ahead of the product.
 
 ---
 
@@ -160,6 +191,9 @@ about on this corpus; it now has a cause.
 
 | Ticket | | Why |
 |---|---|---|
+| [T-033](../backlog/tickets/T-033-eval-baselines-in-one-file-not-three-documents.md) | Baselines in one file | The numbers below are typed by hand in three places; first, so the rest is measured against a record. |
+| [T-032](../backlog/tickets/T-032-harvest-real-questions-from-traces-into-eval-candidates.md) | Harvest questions from traces | Invariant 8 has no mechanism; the suites are still 17 and 20 after two weeks of use. |
+| [T-031](../backlog/tickets/T-031-answer-level-eval-through-the-tool-loop.md) | Answer-level eval | MRR stops one step short of what the user sees; the model's step is unmeasured. |
 | [T-021](../backlog/tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md) | Cross-language retrieval below the floor | Correct answers are refused; the fix must be retrieval-side. |
 | [T-022](../backlog/tickets/T-022-query-spreadsheet-tool.md) | `query_spreadsheet` | A figure in a sheet is locatable but not answerable. |
 | [T-023](../backlog/tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Eval sets to several hundred questions | 17 and 20 cases catch a breakage, not a drift. |
