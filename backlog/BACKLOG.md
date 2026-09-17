@@ -17,16 +17,20 @@ How to work from this file: [README.md](README.md).
 | [T-021](tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md) | Cross-language retrieval falls below the evidence floor | 3-accuracy | P1 | ready | — | — | — | [#21](../../../issues/21) |
 | [T-022](tickets/T-022-query-spreadsheet-tool.md) | query_spreadsheet: answer from the rows, not the summary | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-023](tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Grow the eval sets to several hundred questions from real use | 3-accuracy | P2 | ready | — | — | — | — |
+| [T-031](tickets/T-031-answer-level-eval-through-the-tool-loop.md) | Answer-level eval: judge the answer, not only the retrieval | 3-accuracy | P2 | ready | — | — | — | — |
+| [T-032](tickets/T-032-harvest-real-questions-from-traces-into-eval-candidates.md) | Harvest real questions from traces into eval candidates | 3-accuracy | P2 | ready | — | — | — | — |
+| [T-033](tickets/T-033-eval-baselines-in-one-file-not-three-documents.md) | Eval baselines in one file, not three documents | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
-| [T-027](tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles: resolve the tenant from the principal | 2-gate | P1 | backlog | T-016, T-017 | — | — | — |
+| [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
 | [T-013](tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the drive.file scope | 1-drive | P2 | backlog | T-012 | — | — | [#13](../../../issues/13) |
 | [T-014](tickets/T-014-incremental-sync-persist-and-resume-from-the-cursor.md) | Incremental sync: persist and resume from the cursor | 1-drive | P2 | backlog | T-012 | — | — | [#14](../../../issues/14) |
 | [T-015](tickets/T-015-deletions-must-drop-their-chunks.md) | Deletions must drop their chunks | 1-drive | P2 | backlog | T-014 | — | — | [#15](../../../issues/15) |
-| [T-028](tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions so a reader sees only files shared with them | 2-gate | P2 | backlog | T-027, T-012 | — | — | — |
+| [T-027](tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles: resolve the tenant from the principal | 2-gate | P2 | backlog | T-016, T-017 | — | — | — |
 | [T-024](tickets/T-024-onedrive-connector-over-graph-delta.md) | OneDrive connector over Graph /delta | 4-second-connector | P3 | backlog | T-015 | — | — | — |
 | [T-026](tickets/T-026-hosted-deployment-behind-authentication.md) | Hosted deployment behind authentication | 4-second-connector | P3 | backlog | T-016, T-019 | — | — | — |
+| [T-028](tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions so a reader sees only files shared with them | 2-gate | P3 | backlog | T-027, T-012 | — | — | — |
 
 ## Closed
 

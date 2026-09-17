@@ -3,14 +3,14 @@ id: T-027
 title: 'Users and workspace roles: resolve the tenant from the principal'
 status: backlog
 phase: 2-gate
-priority: P1
+priority: P2
 blocked_by: [T-016, T-017]
 github_issue:
 owner:
 branch:
 pr:
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 closed:
 ---
 
@@ -81,6 +81,13 @@ mounting `/mcp/<workspace>` per workspace and validating membership there.
 Decide with the LibreChat config in hand.
 
 ## Work log
+
+- 2026-09-17 — Product review: P1 → P2. The first client (Dawan) is one
+  workspace with one reader group, and T-016 gives that deployment one
+  honest trust level. Per-user roles are what the second client or the
+  first multi-team client needs, and building them before a single real
+  Drive document is searchable (T-012) would put the platform ahead of the
+  product. Stays in 2-gate as the first thing after T-030 closes.
 
 - 2026-09-16 — Opened while building T-016, which deliberately stops at
   "may you talk to this server".

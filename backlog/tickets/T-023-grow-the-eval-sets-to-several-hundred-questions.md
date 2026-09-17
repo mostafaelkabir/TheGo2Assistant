@@ -10,7 +10,7 @@ owner:
 branch:
 pr:
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 closed:
 ---
 
@@ -49,5 +49,8 @@ suite scored 5/17 on `dawan`. Each workspace needs its own.
 ## Work log
 
 - 2026-09-16 — Opened from the roadmap's Phase 3 "remaining work".
+- 2026-09-17 — Product review: T-032 (harvest from traces) is the mechanism
+  that makes this achievable; do that first. T-033 records the baselines
+  this ticket will move.
 
 ## Outcome

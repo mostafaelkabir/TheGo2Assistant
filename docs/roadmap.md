@@ -10,7 +10,7 @@ Ticket ids here are `T-NNN` and link to those files. Where a GitHub issue
 exists too, the ticket names it. A ticket names the test cases that define
 "done" — a ticket without them is a wish, not a ticket.
 
-Updated 2026-09-16.
+Updated 2026-09-17.
 
 ---
 
@@ -28,13 +28,19 @@ Updated 2026-09-16.
 
 ## Phase 0 — The process
 
-*Done with [T-000](../backlog/tickets/T-000-file-based-backlog-and-ticket-process.md).*
+*Done: [T-000](../backlog/tickets/T-000-file-based-backlog-and-ticket-process.md)
+and [T-029](../backlog/tickets/T-029-mirror-the-backlog-into-basira-with-go2-backlog-sync.md).*
 
 The toolchain, the full suite and an agent review run before a PR exists
 (`/pre-pr`), and CI re-runs them on the PR. Work is planned in tickets
 before code is written, and the ticket is the record of what landed and what
 was measured, so several agents can share the queue without a service in the
-way. `go2 backlog check` keeps the files honest; the fast tests run it.
+way. `go2 backlog check` keeps the files honest; the fast tests run it. The
+tickets are mirrored into Basira, where progress is watched.
+
+One gap already seen: T-029 sat `in-review` for a night after its PR
+merged, because closing is a manual step on `main`. A check that flags an
+in-review ticket whose PR is merged would close it.
 
 ---
 
@@ -107,8 +113,23 @@ Drive files will reorder the rest better than this document can.
 | [T-027](../backlog/tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles | One token per process is one trust level; a company has many. |
 | [T-028](../backlog/tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions | Workspace membership shows every file, including ones Drive would refuse. |
 
-T-016 is the one that gates the others: T-019 and any hosted deployment
-depend on knowing whether a request is trusted.
+T-016 shipped on 2026-09-16 (PR #24): a bearer token per serving process,
+and binding beyond loopback refuses to start without one.
+
+The phase ends with [T-030](../backlog/tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md):
+a rehearsed ten-question demo on Dawan's real files, on a machine that is
+not the developer's, with at least one live Drive document in the
+workspace. Until that rehearsal is recorded, the gate is not passed,
+whatever the ticket statuses say.
+
+**Deliberately after the first client:**
+[T-027](../backlog/tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md)
+(users and roles) and
+[T-028](../backlog/tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md)
+(per-file permissions from the source). Dawan is one workspace with one
+reader group, which one token per process serves honestly. Building
+multi-user access before a single Drive document is searchable would put
+the platform ahead of the product.
 
 ---
 
@@ -160,6 +181,9 @@ about on this corpus; it now has a cause.
 
 | Ticket | | Why |
 |---|---|---|
+| [T-033](../backlog/tickets/T-033-eval-baselines-in-one-file-not-three-documents.md) | Baselines in one file | The numbers below are typed by hand in three places; first, so the rest is measured against a record. |
+| [T-032](../backlog/tickets/T-032-harvest-real-questions-from-traces-into-eval-candidates.md) | Harvest questions from traces | Invariant 8 has no mechanism; the suites are still 17 and 20 after two weeks of use. |
+| [T-031](../backlog/tickets/T-031-answer-level-eval-through-the-tool-loop.md) | Answer-level eval | MRR stops one step short of what the user sees; the model's step is unmeasured. |
 | [T-021](../backlog/tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md) | Cross-language retrieval below the floor | Correct answers are refused; the fix must be retrieval-side. |
 | [T-022](../backlog/tickets/T-022-query-spreadsheet-tool.md) | `query_spreadsheet` | A figure in a sheet is locatable but not answerable. |
 | [T-023](../backlog/tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Eval sets to several hundred questions | 17 and 20 cases catch a breakage, not a drift. |
