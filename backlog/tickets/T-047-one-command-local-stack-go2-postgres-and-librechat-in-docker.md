@@ -1,14 +1,14 @@
 ---
 id: T-047
 title: "One-command local stack: go2, Postgres and LibreChat in Docker Compose"
-status: in-progress
+status: in-review
 phase: 2-gate
 priority: P1
 blocked_by: []
 github_issue:
 owner: Claude (Fable 5.1)
 branch: deploy/local-stack
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/31
 created: 2026-09-18
 updated: 2026-09-18
 closed:
@@ -164,6 +164,9 @@ runs, not what it calls.
   default question with a phrasing the eval proves. Provider choice is
   a .env line; invariant 6 (local retrieval) is the on-prem default and
   is unchanged.
+
+- 2026-09-18 — Opened PR #31; in-review. Toolchain clean, full suite
+  444 passed nothing skipped.
 
 ## Outcome
 
