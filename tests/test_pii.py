@@ -219,6 +219,13 @@ class TestLibyanNationalNumber:
         # pattern never fires inside a longer run.
         assert detect("run 1198501234567 in the ledger") == []
 
+    def test_an_international_phone_is_never_a_national_number(self) -> None:
+        # The ordering constraint the module comment leans on: a fourteen-digit
+        # international phone (00218...) embeds a twelve-digit run, but its
+        # leading 00 sits outside the sex-digit set and there is no word
+        # boundary twelve digits in, so it stays a phone and never a national id.
+        assert summarise(detect("call 00218911234567 today")) == {"phone": 1}
+
     def test_a_libyan_iban_is_detected_by_the_generic_path(self) -> None:
         # A regression guard: the mod-97 path already catches the Libyan IBAN,
         # and adding the national number must not shadow or displace it.
