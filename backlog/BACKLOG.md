@@ -10,6 +10,7 @@ How to work from this file: [README.md](README.md).
 
 | Id | Title | Phase | Pri | Status | Blocked by | Holder | PR | Issue |
 |---|---|---|---|---|---|---|---|---|
+| [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | ready | T-010 | — | — | [#11](../../../issues/11) |
 | [T-017](tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split local into real per-project workspaces | 2-gate | P1 | ready | — | — | — | [#17](../../../issues/17) |
 | [T-018](tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | 2-gate | P1 | ready | — | — | — | [#18](../../../issues/18) |
 | [T-019](tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Turn on tool-output redaction when the reader is not the owner | 2-gate | P1 | ready | T-016 | — | — | [#19](../../../issues/19) |
@@ -23,8 +24,6 @@ How to work from this file: [README.md](README.md).
 | [T-038](tickets/T-038-normalise-arabic-in-the-full-text-leg-of-hybrid-search.md) | Normalise Arabic in the full-text leg of hybrid search | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
-| [T-010](tickets/T-010-encrypt-oauth-credentials-at-rest.md) | Encrypt OAuth credentials at rest | 1-drive | P1 | in-review | — | Claude (Opus 4.8) · `drive/encrypt-oauth-at-rest` | [30](https://github.com/mostafaelkabir/TheGo2Assistant/pull/30) | [#10](../../../issues/10) |
-| [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
 | [T-035](tickets/T-035-verify-the-first-live-google-drive-user-journey.md) | Verify the first live Google Drive user journey | 1-drive | P1 | backlog | T-012 | — | — | — |
@@ -49,6 +48,7 @@ How to work from this file: [README.md](README.md).
 |---|---|---|---|---|---|---|---|---|
 | [T-046](tickets/T-046-close-in-review-tickets-whose-pr-has-merged.md) | Close in-review tickets whose PR has merged | 0-process | P3 | done | — | Claude (Opus 4.8) · `process/backlog-pr-close` | [29](https://github.com/mostafaelkabir/TheGo2Assistant/pull/29) | — |
 | [T-039](tickets/T-039-detect-the-libyan-national-number-in-the-pii-guard.md) | Detect the Libyan national number in the PII guard | 2-gate | P2 | done | — | Claude (Opus 4.8) · `gate/libyan-national-id` | [28](https://github.com/mostafaelkabir/TheGo2Assistant/pull/28) | — |
+| [T-010](tickets/T-010-encrypt-oauth-credentials-at-rest.md) | Encrypt OAuth credentials at rest | 1-drive | P1 | done | — | Claude (Opus 4.8) · `drive/encrypt-oauth-at-rest` | [30](https://github.com/mostafaelkabir/TheGo2Assistant/pull/30) | [#10](../../../issues/10) |
 | [T-029](tickets/T-029-mirror-the-backlog-into-basira-with-go2-backlog-sync.md) | Mirror the backlog into Basira with go2 backlog sync | 0-process | P1 | done | — | claude-fable-5.1 · `process/basira-sync` | [25](https://github.com/mostafaelkabir/TheGo2Assistant/pull/25) | — |
 | [T-016](tickets/T-016-authentication-in-front-of-go2-serve-http.md) | Authentication in front of go2 serve --http | 2-gate | P0 | done | — | claude-fable-5.1 · `feat/http-auth` | [24](https://github.com/mostafaelkabir/TheGo2Assistant/pull/24) | [#16](../../../issues/16) |
 | [T-000](tickets/T-000-file-based-backlog-and-ticket-process.md) | A file-based backlog, and no code without a ticket | 0-process | P0 | done | — | claude-fable-5.1 · `process/backlog-and-tickets` | [23](https://github.com/mostafaelkabir/TheGo2Assistant/pull/23) | — |

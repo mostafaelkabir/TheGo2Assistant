@@ -1,7 +1,7 @@
 ---
 id: T-010
 title: Encrypt OAuth credentials at rest
-status: in-review
+status: done
 phase: 1-drive
 priority: P1
 blocked_by: []
@@ -11,7 +11,7 @@ branch: drive/encrypt-oauth-at-rest
 pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/30
 created: 2026-09-03
 updated: 2026-09-18
-closed:
+closed: 2026-09-18
 ---
 
 ## Problem
@@ -71,5 +71,29 @@ so there is one place to audit.
   no blockers; documented the conflict-does-not-update-token behaviour and
   pinned it with a test. Noted key-rotation (single Fernet) as a T-011
   follow-up. Opened PR #30; in-review.
+- 2026-09-18 — closed by `go2 backlog close`; PR merged 2026-09-18.
 
 ## Outcome
+
+Shipped in PR #30 (merged 2026-09-18): `go2/security/tokens.py` with
+`encrypt_token` / `decrypt_token` (Fernet, keyed from `GO2_FERNET_KEY`),
+`ensure_connection` storing only ciphertext, and `load_token` returning the
+plaintext scoped by `tenant_id`.
+
+Success metrics as measured:
+
+- A token survives a process restart: the DB round-trip test reconnects and
+  decrypts the same value — passes.
+- `token_blob` holds ciphertext: the plaintext is asserted not to be a
+  substring of the stored bytes — passes.
+- No test log line contains the token: `caplog` is searched for the token
+  — passes.
+- Five named tests plus four DB tests, 9 in `tests/test_tokens.py`; full
+  suite 427 passed, nothing skipped, with local providers and the database.
+
+Left out, by design: the OAuth flow itself and key rotation (a single
+`Fernet`, not `MultiFernet`, so rotating the key orphans existing blobs).
+Both go with T-011, before real tokens accumulate. `ensure_connection` does
+not update `token_blob` on conflict, so the upload path's no-token calls
+cannot wipe a stored credential; a real refresh is a separate update path
+that lands with T-011.

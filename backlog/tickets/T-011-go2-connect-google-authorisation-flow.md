@@ -1,7 +1,7 @@
 ---
 id: T-011
 title: "go2 connect google: the authorisation flow"
-status: backlog
+status: ready
 phase: 1-drive
 priority: P1
 blocked_by: [T-010]
@@ -10,7 +10,7 @@ owner:
 branch:
 pr:
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-18
 closed:
 ---
 
@@ -53,5 +53,7 @@ plaintext in the database, even briefly.
 
 - 2026-09-03 — Opened as GitHub issue #11.
 - 2026-09-16 — Mirrored into the local backlog.
+
+- 2026-09-18 — T-010 closed; unblocked, set ready.
 
 ## Outcome
