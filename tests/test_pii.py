@@ -186,6 +186,70 @@ class TestCardVersusPhone:
         assert detect("record 1234567890 in the table") == []
 
 
+class TestLibyanNationalNumber:
+    """The twelve-digit national number every Libyan HR, contract and KYC file carries.
+
+    No public checksum, so the structure is the validation: sex digit 1 or 2,
+    then a birth year. The precision rule applies in full -- the year window is
+    what stops a bare twelve-digit run from being masked as an identity.
+    """
+
+    def test_a_libyan_national_number_is_detected(self) -> None:
+        assert summarise(detect("id 119850123456 on file")) == {"national_id": 1}
+        assert summarise(detect("id 219901234567 on file")) == {"national_id": 1}
+        masked, findings = redact("national id 119850123456 on the form")
+        assert masked == "national id [NATIONAL_ID] on the form"
+        assert "119850123456" not in masked
+        assert len(findings) == 1
+
+    def test_a_libyan_national_number_in_arabic_context_is_detected(self) -> None:
+        # The label in the source is Arabic; the digits are Latin, as they are
+        # printed on the card. A space separates the word from the number, so
+        # the leading word boundary holds.
+        assert summarise(detect("رقمه الوطني هو 119850123456 حسب البطاقة")) == {"national_id": 1}
+
+    def test_impossible_sex_digit_or_birth_year_is_not_a_national_number(self) -> None:
+        # Leading 3 is not a sex digit; birth year 0000 is not a year. Neither
+        # is anything else either -- twelve digits is below the card minimum.
+        assert detect("ref 300000012345 here") == []
+        assert detect("ref 100000123456 here") == []
+
+    def test_a_longer_digit_run_is_not_a_national_number(self) -> None:
+        # Thirteen digits has no word boundary twelve in, so the anchored
+        # pattern never fires inside a longer run.
+        assert detect("run 1198501234567 in the ledger") == []
+
+    def test_an_international_phone_is_never_a_national_number(self) -> None:
+        # The ordering constraint the module comment leans on: a fourteen-digit
+        # international phone (00218...) embeds a twelve-digit run, but its
+        # leading 00 sits outside the sex-digit set and there is no word
+        # boundary twelve digits in, so it stays a phone and never a national id.
+        assert summarise(detect("call 00218911234567 today")) == {"phone": 1}
+
+    def test_a_libyan_iban_is_detected_by_the_generic_path(self) -> None:
+        # A regression guard: the mod-97 path already catches the Libyan IBAN,
+        # and adding the national number must not shadow or displace it.
+        assert summarise(detect("IBAN LY83002048000020100120361")) == {"iban": 1}
+
+    def test_a_libyan_mobile_next_to_a_national_number_yields_two_findings(self) -> None:
+        found = detect("الرقم 119850123456 والهاتف 0912345678")
+        assert summarise(found) == {"national_id": 1, "phone": 1}
+        assert len(found) == EXPECTED_TWO
+
+    def test_a_national_number_is_masked_in_tool_output(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Success metric: masked in tool output when the setting is on, so a
+        # third party's identifier does not reach the person asking.
+        monkeypatch.setenv("GO2_PII_REDACT_TOOL_OUTPUT", "true")
+        get_settings.cache_clear()
+        try:
+            out = screen_tool_output(["the national id is 219901234567"])
+        finally:
+            get_settings.cache_clear()
+        assert "219901234567" not in out[0]
+
+
 class TestToolOutputBoundary:
     """The tool-output redaction setting, which previously did nothing.
 
