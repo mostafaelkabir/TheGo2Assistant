@@ -286,6 +286,13 @@ def ensure_connection(
     ``token`` is the OAuth credential in plaintext. It is encrypted here so only
     ciphertext reaches the ``token_blob`` column; an empty token (the upload
     path) stores empty bytes and needs no key.
+
+    The token is written on **creation only**. On conflict the existing row is
+    kept and its ``token_blob`` is left untouched -- deliberately, so that the
+    repeated no-token calls on the upload path cannot wipe a stored credential.
+    Refreshing an existing connection's token is therefore a separate operation,
+    which lands with the OAuth flow (T-011); passing a new ``token`` for an
+    account that already exists here does not persist it.
     """
     row = conn.execute(
         text("""

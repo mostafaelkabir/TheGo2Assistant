@@ -144,6 +144,20 @@ class TestTokenAtRest:
             loaded = repo.load_token(conn, tenant_id=tenant, connection_id=connection_id)
         assert loaded == ""
 
+    def test_re_ensuring_without_a_token_does_not_wipe_a_stored_one(self, tenant: str) -> None:
+        # The upload path calls ensure_connection repeatedly with no token; that
+        # must never clobber a credential already stored for the same account.
+        with connect() as conn:
+            first = repo.ensure_connection(
+                conn, tenant_id=tenant, source="gdrive", account="me@example.com", token=TOKEN
+            )
+            again = repo.ensure_connection(
+                conn, tenant_id=tenant, source="gdrive", account="me@example.com"
+            )
+            loaded = repo.load_token(conn, tenant_id=tenant, connection_id=first)
+        assert again == first  # same row
+        assert loaded == TOKEN  # credential survived the no-token re-ensure
+
     def test_load_token_is_scoped_to_the_tenant(self, tenant: str) -> None:
         with connect() as conn:
             connection_id = repo.ensure_connection(
