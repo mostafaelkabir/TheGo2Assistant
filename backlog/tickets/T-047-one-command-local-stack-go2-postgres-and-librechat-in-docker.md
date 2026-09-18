@@ -153,5 +153,17 @@ runs, not what it calls.
   presume an installable unit that does not exist. Claimed by Claude
   (Fable 5.1) on `deploy/local-stack`.
 
+- 2026-09-18 — Stood the stack up on the owner's M2 (16 GB). Image built
+  in 1m51s at 742 MB; all six samples indexed. Smoke passed: tools
+  listed, cited answer, document fetched, 401 without the token. Sample
+  eval 7/7, MRR 0.92, refusal margin +0.31. On-device (local) providers
+  pegged a core and ran hot on this laptop and one sample answer fell
+  under the 0.30 floor; switched the test stack to the Jina providers
+  (reachable from the container over IPv4, unlike the host) — search
+  dropped to ~2 s and the laptop stayed idle. Aligned the smoke's
+  default question with a phrasing the eval proves. Provider choice is
+  a .env line; invariant 6 (local retrieval) is the on-prem default and
+  is unchanged.
+
 ## Outcome
 

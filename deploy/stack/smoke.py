@@ -39,7 +39,7 @@ from mcp.types import CallToolResult, TextContent
 
 EXPECTED_TOOLS = frozenset({"search_documents", "fetch_document", "list_documents"})
 DEFAULT_PORT = "8770"
-DEFAULT_QUESTION = "What notice period did we agree with Acme for termination?"
+DEFAULT_QUESTION = "What notice period does the Acme agreement require to terminate?"
 DEFAULT_TITLE = "Acme"
 HTTP_UNAUTHORIZED = 401
 ENV_FILE = Path(__file__).with_name(".env")
