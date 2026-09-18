@@ -607,14 +607,81 @@ def backlog_list(
 
 
 @backlog_app.command("check")
-def backlog_check() -> None:
-    """Validate every ticket and confirm BACKLOG.md is current."""
+def backlog_check(
+    *,
+    prs: Annotated[
+        bool,
+        typer.Option("--prs", help="Also ask GitHub whether any in-review ticket's PR has merged."),
+    ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="With --prs, fail if a merged PR still sits in-review."),
+    ] = False,
+) -> None:
+    """Validate every ticket and confirm BACKLOG.md is current.
+
+    With --prs, additionally report in-review tickets whose pull request has
+    already merged. That leg needs `gh`; without it, or without a network, it
+    says so and skips rather than failing, so the plain check runs on CI with
+    no GitHub credentials.
+    """
     try:
         tickets = backlog_store.check()
     except backlog_store.TicketError as exc:
         typer.echo(f"backlog check failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"{len(tickets)} tickets valid, index current.")
+    if not prs:
+        return
+    if not backlog_store.gh_available():
+        typer.echo("--prs needs gh, which is not installed; skipping the PR check.")
+        return
+    try:
+        merged = backlog_store.merged_in_review(tickets, backlog_store.gh_pr_state)
+    except backlog_store.GhUnavailableError as exc:
+        typer.echo(f"--prs could not reach GitHub ({exc}); skipping the PR check.")
+        return
+    if not merged:
+        typer.echo("No in-review ticket has a merged PR.")
+        return
+    for m in merged:
+        when = m.merged_at.isoformat() if m.merged_at else "an unknown date"
+        typer.echo(
+            f"  {m.ticket.id}: PR {m.ticket.pr} merged {when} "
+            f"-- run `go2 backlog close {m.ticket.id}`"
+        )
+    if strict:
+        raise typer.Exit(code=1)
+
+
+@backlog_app.command("close")
+def backlog_close(
+    ticket_id: Annotated[str, typer.Argument(help="The ticket to close, e.g. T-016.")],
+) -> None:
+    """Mark an in-review ticket done, dated by its merged pull request.
+
+    Write the ticket's '## Outcome' first: this refuses to close without one.
+    It sets the status, the merge date from GitHub and a Work log line, then
+    regenerates the index. Run `go2 backlog sync` after to mirror it to Basira.
+    """
+    if not backlog_store.gh_available():
+        typer.echo("close needs gh to confirm the merge, and gh is not installed.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        path, merge_date = backlog_store.close_ticket(ticket_id, view=backlog_store.gh_pr_state)
+    except backlog_store.GhUnavailableError as exc:
+        typer.echo(f"could not confirm the merge with GitHub: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    except backlog_store.TicketError as exc:
+        typer.echo(f"cannot close {ticket_id}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    try:
+        backlog_store.write_index()
+    except backlog_store.TicketError as exc:
+        typer.echo(f"closed {ticket_id} but the index is now inconsistent: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"closed {ticket_id} ({merge_date.isoformat()}): {path}")
+    typer.echo("Review the '## Outcome', then run `go2 backlog sync`.")
 
 
 @backlog_app.command("index")

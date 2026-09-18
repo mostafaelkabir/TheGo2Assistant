@@ -17,9 +17,12 @@ import pytest
 from typer.testing import CliRunner
 
 from go2.backlog import (
+    PrState,
     TicketError,
     check,
+    close_ticket,
     load_tickets,
+    merged_in_review,
     new_ticket_text,
     next_id,
     parse_ticket,
@@ -271,6 +274,123 @@ def test_new_refuses_an_unknown_phase_through_the_cli(
     result = CliRunner().invoke(app, ["backlog", "new", "x", "--phase", "9-nowhere"])
     assert result.exit_code == 2
     assert not list((tmp_path / "tickets").glob("T-005*"))
+
+
+PR_URL = "https://github.com/o/r/pull/1"
+MERGE_DATE = date(2026, 9, 18)
+
+
+def _merged(_url: str) -> PrState:
+    return PrState(merged=True, merged_at=MERGE_DATE)
+
+
+def _still_open(_url: str) -> PrState:
+    return PrState(merged=False, merged_at=None)
+
+
+def test_merged_pr_on_an_in_review_ticket_is_reported(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket("T-001", status="in-review", extra_meta=f"pr: {PR_URL}"),
+    )
+    _write(tmp_path, "T-002-b-ticket.md", _ticket("T-002", status="ready"))
+    merged = merged_in_review(load_tickets(tmp_path), _merged)
+    assert [m.ticket.id for m in merged] == ["T-001"]
+    assert merged[0].merged_at == MERGE_DATE
+
+
+def test_open_pr_is_not_reported(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket("T-001", status="in-review", extra_meta=f"pr: {PR_URL}"),
+    )
+    assert merged_in_review(load_tickets(tmp_path), _still_open) == []
+
+
+def test_strict_mode_fails_on_a_merged_pr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket("T-001", status="in-review", extra_meta=f"pr: {PR_URL}"),
+    )
+    write_index(tmp_path)
+    monkeypatch.setattr("go2.backlog.default_root", lambda: tmp_path)
+    monkeypatch.setattr("go2.backlog.gh_available", lambda: True)
+    monkeypatch.setattr("go2.backlog.gh_pr_state", _merged)
+    warned = CliRunner().invoke(app, ["backlog", "check", "--prs"])
+    assert warned.exit_code == 0, warned.output
+    assert "T-001" in warned.output
+    strict = CliRunner().invoke(app, ["backlog", "check", "--prs", "--strict"])
+    assert strict.exit_code == 1, strict.output
+    assert "T-001" in strict.output
+
+
+def test_close_refuses_an_empty_outcome(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket("T-001", status="in-review", extra_meta=f"pr: {PR_URL}"),
+    )
+    with pytest.raises(TicketError, match="Outcome"):
+        close_ticket("T-001", view=_merged, root=tmp_path)
+
+
+def test_close_writes_done_closed_and_a_work_log_line(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket(
+            "T-001", status="in-review", extra_meta=f"pr: {PR_URL}", outcome="Shipped the thing."
+        ),
+    )
+    path, merge_date = close_ticket("T-001", view=_merged, root=tmp_path, today=date(2026, 9, 19))
+    assert merge_date == MERGE_DATE
+    closed = parse_ticket(path)
+    assert closed.status == "done"
+    assert closed.closed == MERGE_DATE
+    assert closed.updated == date(2026, 9, 19)
+    assert "closed by" in closed.sections["Work log"]
+    assert closed.sections["Outcome"] == "Shipped the thing."
+    # The success metric: a closed file leaves the store consistent once the
+    # index is regenerated, exactly as the CLI does after the edit.
+    write_index(tmp_path)
+    assert [t.id for t in check(tmp_path)] == ["T-001"]
+
+
+def test_close_refuses_a_pr_that_has_not_merged(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket(
+            "T-001", status="in-review", extra_meta=f"pr: {PR_URL}", outcome="Shipped the thing."
+        ),
+    )
+    with pytest.raises(TicketError, match="not merged"):
+        close_ticket("T-001", view=_still_open, root=tmp_path)
+
+
+def test_check_without_gh_skips_with_a_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(
+        tmp_path,
+        "T-001-a-ticket.md",
+        _ticket("T-001", status="in-review", extra_meta=f"pr: {PR_URL}"),
+    )
+    write_index(tmp_path)
+    monkeypatch.setattr("go2.backlog.default_root", lambda: tmp_path)
+    monkeypatch.setattr("go2.backlog.gh_available", lambda: False)
+
+    def _must_not_run(_url: str) -> PrState:  # gh must never be consulted
+        raise AssertionError
+
+    monkeypatch.setattr("go2.backlog.gh_pr_state", _must_not_run)
+    result = CliRunner().invoke(app, ["backlog", "check", "--prs"])
+    assert result.exit_code == 0, result.output
+    assert "gh" in result.output
+    assert "skip" in result.output.lower()
 
 
 def test_the_repository_backlog_is_consistent() -> None:
