@@ -1,13 +1,13 @@
 ---
 id: T-039
 title: Detect the Libyan national number in the PII guard
-status: ready
+status: in-progress
 phase: 2-gate
 priority: P2
 blocked_by: []
 github_issue:
-owner:
-branch:
+owner: Claude (Opus 4.8)
+branch: gate/libyan-national-id
 pr:
 created: 2026-09-18
 updated: 2026-09-18
@@ -82,5 +82,7 @@ control protects nothing.
 
 - 2026-09-18 — Opened from the strategy review; the guard knew Libyan
   phones and IBANs and not the identifier every Libyan file carries.
+- 2026-09-18 — Claimed by Claude (Opus 4.8) on branch
+  gate/libyan-national-id.
 
 ## Outcome
