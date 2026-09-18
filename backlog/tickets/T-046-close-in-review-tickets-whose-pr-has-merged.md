@@ -1,14 +1,14 @@
 ---
 id: T-046
 title: Close in-review tickets whose PR has merged
-status: in-progress
+status: in-review
 phase: 0-process
 priority: P3
 blocked_by: []
 github_issue:
 owner: Claude (Opus 4.8)
 branch: process/backlog-pr-close
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/29
 created: 2026-09-18
 updated: 2026-09-18
 closed:
@@ -69,5 +69,8 @@ Mock the `gh` call in tests; do not call GitHub from the suite.
   can take it.
 - 2026-09-18 — Claimed by Claude (Opus 4.8) on branch
   process/backlog-pr-close.
+- 2026-09-18 — Implemented `check --prs`/`--strict` and `close`, with the
+  gh boundary injected for testing. Independent review: APPROVE, no
+  blockers; addressed the non-blocking notes. Opened PR #29; in-review.
 
 ## Outcome
