@@ -51,8 +51,12 @@ family-book numbers, or any detector without a stated structure.
 
 - Both `119850123456` and `219901234567` are detected and redacted in
   text and in tool output when `pii_redact_tool_output` is on.
-- `300000012345` (impossible leading digit), `120000012345` (year out of
-  range) and a thirteen-digit run are not detected.
+- `300000012345` (impossible leading digit), `100000123456` (birth year
+  0000, out of range) and a thirteen-digit run are not detected. (The
+  originally listed `120000012345` parses to birth year 2000 under the
+  stated structure — digits 2-5 — which is a valid year and must be
+  detected; a detector that dropped it would miss any ID of a person born
+  this century. Corrected on claim; see Work log.)
 - `go2 scan` over the `local` and `dawan` corpora reports 0 new findings
   of this kind on documents that do not contain a national number,
   verified by reading each hit. The count is written into the Outcome.
@@ -84,5 +88,20 @@ control protects nothing.
   phones and IBANs and not the identifier every Libyan file carries.
 - 2026-09-18 — Claimed by Claude (Opus 4.8) on branch
   gate/libyan-national-id.
+- 2026-09-18 — Fixed an internal inconsistency in the success metrics: the
+  negative example `120000012345` parses to birth year 2000 (digits 2-5),
+  which is in the stated 1900-current window and so must be detected.
+  Replaced it with `100000123456` (birth year 0000). The detector uses the
+  correct year window; rejecting 2000 would have been a real miss.
+- 2026-09-18 — Implemented `_national_id_findings` (anchored `[12]\d{11}`
+  plus a 1900-current birth-year window) and six named tests plus a
+  tool-output masking test; all 44 `tests/test_pii.py` pass. Precision
+  check: `local` and `dawan` are not indexed in this dev environment
+  (only the `upload` workspace is), so a full corpus scan is pending on the
+  owner's machine. A proxy `go2 scan` over the repo's own digit-heavy
+  content (docs, go2, backlog, eval, tests) reported 0 false `national_id`
+  findings — the only hits are the worked national numbers written into
+  this ticket. Owner to run `go2 scan` over `local` and `dawan` before
+  merge and record the count in the Outcome.
 
 ## Outcome

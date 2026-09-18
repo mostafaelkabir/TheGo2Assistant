@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 
 
@@ -126,6 +127,36 @@ _VENDOR_KEY = re.compile(
 )
 # Loose national-identifier shapes (US SSN, and similar 9-11 digit grouped ids).
 _NATIONAL_ID = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+# The Libyan national number (الرقم الوطني): twelve digits, the first 1 or 2
+# for sex, the next four the birth year. There is no public checksum, so the
+# structure is the whole validation -- the year window below is what keeps a
+# bare twelve-digit run (an invoice line, a phone with a country code, a
+# timestamp) from becoming a false national id. The anchors matter: a twelve
+# digit substring of a fourteen-digit international phone (00218...) has no
+# word boundary at its start, so it cannot be captured here.
+_LIBYAN_NATIONAL_ID = re.compile(r"\b[12]\d{11}\b")
+_NATIONAL_ID_MIN_YEAR = 1900
+
+
+def _national_id_findings(text: str) -> list[Finding]:
+    """US SSN shapes plus structurally valid Libyan national numbers.
+
+    A twelve-digit run counts only when its first digit is 1 or 2 and its
+    second-through-fifth digits form a plausible birth year (1900 to the
+    current year). Without the year window the pattern is just "any twelve
+    digits", which a redactor cannot afford.
+    """
+    found = _simple_findings(text, _NATIONAL_ID, PiiKind.NATIONAL_ID)
+    matches = list(_LIBYAN_NATIONAL_ID.finditer(text))
+    if matches:
+        max_year = datetime.now(tz=UTC).year
+        found += [
+            Finding(PiiKind.NATIONAL_ID, m.start(), m.end(), m.group())
+            for m in matches
+            if _NATIONAL_ID_MIN_YEAR <= int(m.group()[1:5]) <= max_year
+        ]
+    return found
+
 
 _MIN_CARD_DIGITS = 13
 _MAX_CARD_DIGITS = 19
@@ -187,7 +218,7 @@ def detect(text: str, *, kinds: frozenset[PiiKind] | None = None) -> list[Findin
     if PiiKind.SECRET in wanted:
         found += _simple_findings(text, _VENDOR_KEY, PiiKind.SECRET)
     if PiiKind.NATIONAL_ID in wanted:
-        found += _simple_findings(text, _NATIONAL_ID, PiiKind.NATIONAL_ID)
+        found += _national_id_findings(text)
     if PiiKind.EMAIL in wanted:
         found += _simple_findings(text, _EMAIL, PiiKind.EMAIL)
     if PiiKind.PHONE in wanted:
