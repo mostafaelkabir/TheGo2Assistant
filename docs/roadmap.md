@@ -20,7 +20,7 @@ this: [`strategy.md`](strategy.md).
 | | What | Tickets |
 |---|---|---|
 | **Now** | Google Drive end to end: the product's core promise, and nothing has shipped for it yet | T-010 → T-012, then T-035 |
-| **Next** | The gate before anyone else touches it: real workspaces, OCR, redaction, QA evidence, real-MCP boundary tests, then the Dawan rehearsal that proves it | T-017, T-018, T-019, T-034, T-036, then T-030 |
+| **Next** | The gate before anyone else touches it: an installable stack, real workspaces, OCR, redaction, QA evidence, real-MCP boundary tests, then the Dawan rehearsal that proves it | T-047, T-017, T-018, T-019, T-034, T-036, then T-030 |
 | **Then** | The rest of Drive and the pilot: picker, incremental sync, deletions, five days of real use | T-013 → T-015, then T-037 |
 | **Later** | Earn the accuracy claim: baselines, harvest, answer-level eval, cross-language, Arabic full-text, revisions, spreadsheets | T-033, T-032, T-031, T-021, T-038, T-044, T-022, T-023, T-025 |
 | **After the first client** | Onboarding in under a day, users and roles, per-file permissions, the Libyan national number, the audit trail | T-043, T-027, T-028, T-039, T-041 |
@@ -124,6 +124,7 @@ Drive files will reorder the rest better than this document can.
 | [T-017](../backlog/tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split `local` into real per-project workspaces | 92 HaramBlur + 20 Atmata + 5 test documents share one workspace. |
 | [T-018](../backlog/tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | Two Dawan files are image-only and unanswerable. |
 | [T-019](../backlog/tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Tool-output redaction when the reader is not the owner | The switch works; nothing turns it on. |
+| [T-047](../backlog/tickets/T-047-one-command-local-stack-go2-postgres-and-librechat-in-docker.md) | One-command local stack | T-030 needs a machine that is not the developer's, and nothing installable existed. |
 | [T-030](../backlog/tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness | The exit criterion: a rehearsed demo on real files, recorded. |
 
 T-016 shipped on 2026-09-16 (PR #24): a bearer token per serving process,

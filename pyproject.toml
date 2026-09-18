@@ -69,6 +69,8 @@ ignore = ["COM812", "ISC001"]
     "N815",              # fakes mirror upstream camelCase API names verbatim
 ]
 "go2/storage/migrations/**" = ["INP001"]
+# Deployment scripts run by path, not imported as a package.
+"deploy/**" = ["INP001"]
 
 [tool.ruff.lint.flake8-type-checking]
 # Typer resolves these annotations at runtime, so their imports must stay at
@@ -80,7 +82,7 @@ convention = "google"
 
 # --- Types ------------------------------------------------------------------
 [tool.pyrefly]
-project-includes = ["go2", "tests"]
+project-includes = ["go2", "tests", "deploy"]
 python-version = "3.12"
 
 [tool.pytest.ini_options]

@@ -1,0 +1,56 @@
+# LibreChat configuration for the one-command stack.
+#
+# One MCP server entry, because one stack serves one workspace. The entry is
+# named `go2` rather than after the workspace because a key here cannot be
+# interpolated; which workspace it reaches is decided by GO2_TENANT in .env,
+# and the server refuses to start if that workspace does not exist.
+
+version: 1.3.14
+cache: true
+
+# LibreChat blocks private addresses as SSRF targets by default, which is a
+# sensible default and not an obstacle to route around. This names the one
+# host:port pair inside the Compose network it may reach and leaves the
+# protection on for everything else. Read once when the registry is built,
+# so a change needs a container restart, not a reload.
+mcpSettings:
+  allowedAddresses:
+    - "server:8765"
+
+mcpServers:
+  go2:
+    type: streamable-http
+    url: http://server:8765/mcp
+    # The value the server was started with, from the same .env. A request
+    # without it is refused with 401 before any tool runs.
+    headers:
+      Authorization: "Bearer ${GO2_HTTP_TOKEN}"
+    timeout: 120000
+    initTimeout: 20000
+    # Injects the server's own instructions -- the abstention rule, the
+    # citation requirement, "the documents do not say" -- into the agent's
+    # context. Without this the model gets three tools and none of the
+    # discipline that makes their output trustworthy.
+    serverInstructions: true
+
+endpoints:
+  custom:
+    # Alibaba Model Studio, Singapore. Beijing is a different data
+    # jurisdiction for company documents, and a key is bound to the region
+    # that issued it.
+    - name: "Qwen (Alibaba, Singapore)"
+      apiKey: "${ALIBABA_API_KEY}"
+      baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      models:
+        default:
+          # qwen3-max first: the agent loop is the part model quality
+          # decides, and it is the strongest of these at tool-calling and at
+          # honouring the refusal instruction.
+          - qwen3-max
+          - qwen-max
+          - qwen-plus-latest
+          - qwen-flash
+        fetch: false
+      titleConvo: true
+      titleModel: qwen-flash
+      modelDisplayLabel: Qwen

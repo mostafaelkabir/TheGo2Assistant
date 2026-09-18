@@ -3,6 +3,11 @@
     "go2assistant": {
       "command": "uv",
       "args": ["run", "--directory", ".", "go2", "serve"]
+    },
+    "go2stack": {
+      "type": "http",
+      "url": "http://127.0.0.1:8770/mcp",
+      "headers": { "Authorization": "Bearer ${GO2_HTTP_TOKEN}" }
     }
   }
 }

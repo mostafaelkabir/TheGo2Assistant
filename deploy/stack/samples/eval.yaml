@@ -1,0 +1,39 @@
+# Retrieval checks for the sample corpus. Run inside the stack:
+#
+#   docker compose run --rm --no-deps server evaluate /app/deploy/stack/samples/eval.yaml
+#
+# Written by reading each sample file first, so a failure means retrieval
+# changed, not that a guess was wrong. The two Acme documents are the
+# "contract plus amendment" case that needs two searches in a chat and both
+# rank here; the Arabic case keeps that script in the suite from day one.
+
+tenant: demo
+
+cases:
+  - question: What annual renewal fee did we agree with Acme?
+    expect_document: Acme Master Services Agreement
+    expect_text: "4,500"
+
+  - question: What notice period does the Acme agreement require to terminate?
+    expect_document:
+      - Acme Master Services Agreement
+      - Acme MSA Amendment
+
+  - question: Was the Acme notice period amended, and to what?
+    expect_document: Acme MSA Amendment
+    expect_text: "120"
+
+  - question: What is the total on Globex quotation Q-2026-0417?
+    expect_document: Globex Quotation
+    expect_text: "7,680"
+
+  - question: How much home-office equipment expense is reimbursed per year?
+    expect_document: Remote Work Policy
+    expect_text: "300"
+
+  - question: كم يوم إجازة سنوية يستحق الموظف بعد خمس سنوات خدمة؟
+    expect_document: سياسة الإجازات
+    expect_text: "30"
+
+  - question: What is the office wifi password?
+    expect_no_answer: true
