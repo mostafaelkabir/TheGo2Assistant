@@ -1,7 +1,7 @@
 ---
 id: T-039
 title: Detect the Libyan national number in the PII guard
-status: in-review
+status: done
 phase: 2-gate
 priority: P2
 blocked_by: []
@@ -11,7 +11,7 @@ branch: gate/libyan-national-id
 pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/28
 created: 2026-09-18
 updated: 2026-09-18
-closed:
+closed: 2026-09-18
 ---
 
 ## Problem
@@ -106,5 +106,39 @@ control protects nothing.
 - 2026-09-18 — Independent review: APPROVE, no blockers. Added an
   international-phone ordering regression test per the review. Opened
   PR #28; status in-review.
+- 2026-09-18 — PR #28 merged. Closed with the Outcome below.
 
 ## Outcome
+
+Shipped in PR #28 (merged 2026-09-18). The `NATIONAL_ID` kind now also
+detects the Libyan national number: `_LIBYAN_NATIONAL_ID = \b[12]\d{11}\b`
+with a birth-year window of 1900 to the current year on digits 2-5, in
+`go2/security/pii.py`. It is checked after cards and IBANs and before
+phones, and the word-boundary anchoring means a twelve-digit substring of a
+fourteen-digit international phone (`00218…`) is never captured.
+
+Success metrics as measured:
+
+- `119850123456` and `219901234567` are detected and redacted in text and
+  in tool output when `pii_redact_tool_output` is on — asserted by
+  `test_a_libyan_national_number_is_detected` and
+  `test_a_national_number_is_masked_in_tool_output`.
+- `300000012345` (bad sex digit), `100000123456` (birth year 0000) and a
+  thirteen-digit run are not detected. (The ticket's original
+  `120000012345` was corrected: it parses to birth year 2000, a valid year
+  that must be detected; a live check confirms `120000123456` is caught.)
+- Seven new tests plus a regression that the Libyan IBAN still resolves via
+  the mod-97 path; all 45 `tests/test_pii.py` and the full suite (416,
+  nothing skipped, local providers) pass.
+
+**Precision scan still owed.** The metric "`go2 scan` over `local` and
+`dawan` reports 0 new findings, count recorded here" could not be run: those
+workspaces are not indexed in the dev environment (only `upload` is). A
+proxy scan over the repo's own digit-heavy content (docs, go2, backlog,
+eval, tests) found 0 false `national_id` findings — the only hits are the
+worked national numbers written into this ticket. The definitive scan over
+`local` and `dawan` remains a required follow-up on the owner's machine;
+if it fires on ordinary content the year window must be tightened per the
+precision rule. Closed as `done` because the code has merged and is live;
+this residual verification is flagged to the owner rather than silently
+carried.
