@@ -39,7 +39,14 @@ OPEN_STATUSES: frozenset[str] = frozenset({"backlog", "ready", "in-progress", "i
 CLOSED_STATUSES: frozenset[str] = frozenset({"done", "dropped"})
 PRIORITIES: tuple[str, ...] = ("P0", "P1", "P2", "P3")
 # The roadmap's phases. A ticket names one so the index groups honestly.
-PHASES: tuple[str, ...] = ("0-process", "1-drive", "2-gate", "3-accuracy", "4-second-connector")
+PHASES: tuple[str, ...] = (
+    "0-process",
+    "1-drive",
+    "2-gate",
+    "3-accuracy",
+    "4-second-connector",
+    "5-on-prem",
+)
 
 REQUIRED_SECTIONS: tuple[str, ...] = (
     "Problem",

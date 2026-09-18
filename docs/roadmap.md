@@ -10,7 +10,8 @@ Ticket ids here are `T-NNN` and link to those files. Where a GitHub issue
 exists too, the ticket names it. A ticket names the test cases that define
 "done" — a ticket without them is a wish, not a ticket.
 
-Updated 2026-09-17.
+Updated 2026-09-18. Where this is going, and why the phases look like
+this: [`strategy.md`](strategy.md).
 
 ---
 
@@ -18,11 +19,12 @@ Updated 2026-09-17.
 
 | | What | Tickets |
 |---|---|---|
-| **Now** | Google Drive end to end: the product's core promise, and nothing has shipped for it yet | T-010 → T-012 |
-| **Next** | The gate before anyone else touches it: real workspaces, OCR, redaction, then the Dawan rehearsal that proves it | T-017, T-018, T-019, then T-030 |
-| **Then** | The rest of Drive: picker, incremental sync, deletions | T-013 → T-015 |
-| **Later** | Earn the accuracy claim: baselines, harvest, answer-level eval, cross-language, spreadsheets | T-033, T-032, T-031, T-021, T-022, T-023, T-025 |
-| **After the first client** | Users and roles, per-file permissions | T-027, T-028 |
+| **Now** | Google Drive end to end: the product's core promise, and nothing has shipped for it yet | T-010 → T-012, then T-035 |
+| **Next** | The gate before anyone else touches it: real workspaces, OCR, redaction, QA evidence, real-MCP boundary tests, then the Dawan rehearsal that proves it | T-017, T-018, T-019, T-034, T-036, then T-030 |
+| **Then** | The rest of Drive and the pilot: picker, incremental sync, deletions, five days of real use | T-013 → T-015, then T-037 |
+| **Later** | Earn the accuracy claim: baselines, harvest, answer-level eval, cross-language, Arabic full-text, revisions, spreadsheets | T-033, T-032, T-031, T-021, T-038, T-044, T-022, T-023, T-025 |
+| **After the first client** | Onboarding in under a day, users and roles, per-file permissions, the Libyan national number, the audit trail | T-043, T-027, T-028, T-039, T-041 |
+| **The bank tier** | All-local answering measured, install with no internet, scanned-Arabic eval | T-040, T-042, T-045 |
 | **2027** | A second connector, hosted | T-024, T-026 |
 
 Done so far: T-000 (this process), T-016 (auth in front of HTTP), T-029
@@ -51,7 +53,8 @@ tickets are mirrored into Basira, where progress is watched.
 
 One gap already seen: T-029 sat `in-review` for a night after its PR
 merged, because closing is a manual step on `main`. A check that flags an
-in-review ticket whose PR is merged would close it.
+in-review ticket whose PR is merged would close it
+([T-046](../backlog/tickets/T-046-close-in-review-tickets-whose-pr-has-merged.md)).
 
 ---
 
@@ -132,6 +135,17 @@ not the developer's, with at least one live Drive document in the
 workspace. Until that rehearsal is recorded, the gate is not passed,
 whatever the ticket statuses say.
 
+**Evidence, not statuses.** Four QA tickets were added on 2026-09-17 so
+that "done" means something a reviewer can check:
+[T-034](../backlog/tickets/T-034-produce-a-repeatable-qa-evidence-report.md)
+(one repeatable QA report per candidate commit),
+[T-035](../backlog/tickets/T-035-verify-the-first-live-google-drive-user-journey.md)
+(the first live Drive journey, account to cited answer),
+[T-036](../backlog/tickets/T-036-test-client-boundaries-through-real-mcp-tools.md)
+(tenant isolation and redaction through real MCP calls, not stubs) and
+[T-037](../backlog/tickets/T-037-confirm-freshness-recovery-and-pilot-acceptance.md)
+(five days of real use before a demo is called a pilot).
+
 **Deliberately after the first client:**
 [T-027](../backlog/tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md)
 (users and roles) and
@@ -195,6 +209,8 @@ about on this corpus; it now has a cause.
 | [T-032](../backlog/tickets/T-032-harvest-real-questions-from-traces-into-eval-candidates.md) | Harvest questions from traces | Invariant 8 has no mechanism; the suites are still 17 and 20 after two weeks of use. |
 | [T-031](../backlog/tickets/T-031-answer-level-eval-through-the-tool-loop.md) | Answer-level eval | MRR stops one step short of what the user sees; the model's step is unmeasured. |
 | [T-021](../backlog/tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md) | Cross-language retrieval below the floor | Correct answers are refused; the fix must be retrieval-side. |
+| [T-038](../backlog/tickets/T-038-normalise-arabic-in-the-full-text-leg-of-hybrid-search.md) | Arabic in the full-text leg | `simple` treats eight spellings of four Arabic words as eight lexemes; a third of `dawan` is Arabic, and for it hybrid is vector-only. |
+| [T-044](../backlog/tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions | Two revisions of one proposal fill four of five slots, and passages carry no date, so the model cannot prefer the current one. |
 | [T-022](../backlog/tickets/T-022-query-spreadsheet-tool.md) | `query_spreadsheet` | A figure in a sheet is locatable but not answerable. |
 | [T-023](../backlog/tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Eval sets to several hundred questions | 17 and 20 cases catch a breakage, not a drift. |
 | [T-025](../backlog/tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation | Decide the index-memory trade before a customer forces it. |
@@ -217,6 +233,28 @@ once T-016 and T-019 are done, and per-tenant partitioning if any single
 workspace approaches a million documents.
 
 ---
+
+## Phase 5 — On-prem, for a bank
+
+*After the first client. The buyer this is built to reach; see
+[`strategy.md`](strategy.md).*
+
+A Libyan bank or ministry permits no egress, runs on scans and Arabic
+circulars, and asks who was told what from which document. The retrieval
+core already meets that; deployment, generation, identity and audit do
+not. These tickets measure before promising.
+
+| Ticket | | Why |
+|---|---|---|
+| [T-039](../backlog/tickets/T-039-detect-the-libyan-national-number-in-the-pii-guard.md) | Libyan national number in the PII guard | Phones and IBANs are redacted; the identifier on every Libyan HR file is not. Phase 2, because it is a gate item once a Libyan office is the reader. |
+| [T-040](../backlog/tickets/T-040-an-all-local-answering-path-measured-against-the-eval-sets.md) | All-local answering, measured | Generation and OCR still leave the machine, and a local model was once seen skipping the tools. Put a number on it. |
+| [T-041](../backlog/tickets/T-041-audit-trail-who-asked-what-was-cited-exportable-and-retained.md) | Audit trail | The trace table is the right shape and has no user, no export, no retention. |
+| [T-042](../backlog/tickets/T-042-install-with-no-internet-models-and-packages-vendored.md) | Install with no internet | First run downloads 1.7 GB from Hugging Face; a bank network downloads nothing. |
+| [T-045](../backlog/tickets/T-045-a-scanned-arabic-eval-set-before-the-bank-tier-is-promised.md) | A scanned-Arabic eval set | The bank tier's largest accuracy risk, and no document in either suite measures it. |
+
+Not ticketed on purpose: a file-share connector (written when a buyer
+names the share) and anything customer-facing (written after a rung-3
+pilot has run).
 
 ## Risks
 
