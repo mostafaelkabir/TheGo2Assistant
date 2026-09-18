@@ -10,6 +10,7 @@ backlog, so a malformed ticket fails CI.
 
 from __future__ import annotations
 
+import subprocess
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -17,10 +18,13 @@ import pytest
 from typer.testing import CliRunner
 
 from go2.backlog import (
+    GhUnavailableError,
     PrState,
     TicketError,
+    _parse_pr_state,
     check,
     close_ticket,
+    gh_pr_state,
     load_tickets,
     merged_in_review,
     new_ticket_text,
@@ -391,6 +395,40 @@ def test_check_without_gh_skips_with_a_message(
     assert result.exit_code == 0, result.output
     assert "gh" in result.output
     assert "skip" in result.output.lower()
+
+
+def test_parse_pr_state_reads_state_and_merge_date() -> None:
+    merged = _parse_pr_state('{"state": "MERGED", "mergedAt": "2026-09-18T14:02:33Z"}')
+    assert merged == PrState(merged=True, merged_at=MERGE_DATE)
+    still_open = _parse_pr_state('{"state": "OPEN", "mergedAt": null}')
+    assert still_open == PrState(merged=False, merged_at=None)
+
+
+def test_gh_pr_state_maps_every_failure_to_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The offline-safe contract at the subprocess layer: a timeout or a non-zero
+    # exit is "we cannot tell", not "not merged", so the caller skips.
+    monkeypatch.setattr("go2.backlog.gh_available", lambda: True)
+
+    def _timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd="gh", timeout=20)
+
+    monkeypatch.setattr("go2.backlog.subprocess.run", _timeout)
+    with pytest.raises(GhUnavailableError, match="timed out"):
+        gh_pr_state(PR_URL)
+
+    def _bad_exit(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.CalledProcessError(1, "gh", stderr="not found")
+
+    monkeypatch.setattr("go2.backlog.subprocess.run", _bad_exit)
+    with pytest.raises(GhUnavailableError, match="could not read"):
+        gh_pr_state(PR_URL)
+
+
+def test_gh_pr_state_refuses_a_value_that_is_not_a_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A pr field like "-x" must never reach gh as a flag.
+    monkeypatch.setattr("go2.backlog.gh_available", lambda: True)
+    with pytest.raises(GhUnavailableError, match="not a pull-request URL"):
+        gh_pr_state("-x")
 
 
 def test_the_repository_backlog_is_consistent() -> None:

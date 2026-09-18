@@ -563,6 +563,11 @@ def gh_pr_state(pr_url: str) -> PrState:
     if not gh_available():
         msg = "gh is not installed"
         raise GhUnavailableError(msg)
+    if not pr_url.startswith(("http://", "https://")):
+        # `pr:` is a free-text ticket field; a value like "-x" would be read by
+        # gh as a flag. Insisting on a URL closes that without a shell in play.
+        msg = f"{pr_url!r} is not a pull-request URL"
+        raise GhUnavailableError(msg)
     cmd = ["gh", "pr", "view", pr_url, "--json", "state,mergedAt"]
     try:
         # Fixed argv, no shell, and the only interpolated value is the PR url the
@@ -625,7 +630,8 @@ def _append_worklog(body: str, line: str) -> str:
     cut = nxt if nxt != -1 else len(body)
     head = body[:cut].rstrip("\n")
     tail = body[cut:]
-    return f"{head}\n{line}{tail}" if tail else f"{head}\n{line}\n"
+    # Keep the blank line before the next heading (tail starts "\n## ...").
+    return f"{head}\n{line}\n{tail}" if tail else f"{head}\n{line}\n"
 
 
 def _closed_text(text: str, *, status: str, closed: str, updated: str, worklog_line: str) -> str:

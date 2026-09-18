@@ -631,6 +631,8 @@ def backlog_check(
         typer.echo(f"backlog check failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"{len(tickets)} tickets valid, index current.")
+    if strict and not prs:
+        typer.echo("note: --strict only applies with --prs; no PRs were checked.", err=True)
     if not prs:
         return
     if not backlog_store.gh_available():
