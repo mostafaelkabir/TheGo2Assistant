@@ -24,7 +24,7 @@ How to work from this file: [README.md](README.md).
 | [T-038](tickets/T-038-normalise-arabic-in-the-full-text-leg-of-hybrid-search.md) | Normalise Arabic in the full-text leg of hybrid search | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
-| [T-046](tickets/T-046-close-in-review-tickets-whose-pr-has-merged.md) | Close in-review tickets whose PR has merged | 0-process | P3 | ready | — | — | — | — |
+| [T-046](tickets/T-046-close-in-review-tickets-whose-pr-has-merged.md) | Close in-review tickets whose PR has merged | 0-process | P3 | in-review | — | Claude (Opus 4.8) · `process/backlog-pr-close` | [29](https://github.com/mostafaelkabir/TheGo2Assistant/pull/29) | — |
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |

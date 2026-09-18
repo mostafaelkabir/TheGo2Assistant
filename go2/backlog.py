@@ -19,7 +19,10 @@ several agents share it:
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -492,3 +495,210 @@ def slugify(title: str) -> str:
     """A filename-safe fragment of a title."""
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
     return slug[:60].rstrip("-") or "ticket"
+
+
+# --- Closing a ticket against its merged pull request -----------------------
+#
+# `go2 backlog check` validates the files against each other and never against
+# GitHub, so it cannot notice that an in-review ticket's PR has already merged.
+# That gap left T-029 sitting in-review for a night. These helpers ask `gh`,
+# and they treat "I could not ask" as skip-and-say-so rather than as an answer:
+# a backlog check on a machine with no `gh` or no network must still pass.
+
+_GH_TIMEOUT = 20  # seconds; reading one PR is quick, or the network is gone.
+
+
+class GhUnavailableError(RuntimeError):
+    """``gh`` is missing, timed out, or could not read the pull request.
+
+    Its own type so a caller can distinguish "we don't know" from "not merged":
+    the first skips, the second is an answer.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class PrState:
+    """What GitHub reports about one pull request."""
+
+    merged: bool
+    merged_at: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class MergedTicket:
+    """An in-review ticket whose pull request has already merged."""
+
+    ticket: Ticket
+    merged_at: date | None
+
+
+def gh_available() -> bool:
+    """Whether the ``gh`` CLI is on PATH. Cheap, and calls nothing."""
+    return shutil.which("gh") is not None
+
+
+def _parse_pr_state(raw: str) -> PrState:
+    data = json.loads(raw)
+    merged_at_raw = data.get("mergedAt")
+    merged_at: date | None = None
+    if merged_at_raw:
+        # gh prints RFC 3339 with a trailing Z, which fromisoformat reads on 3.11+.
+        merged_at = datetime.fromisoformat(str(merged_at_raw)).date()
+    return PrState(merged=data.get("state") == "MERGED", merged_at=merged_at)
+
+
+def gh_pr_state(pr_url: str) -> PrState:
+    """Ask GitHub for one pull request's state through ``gh``.
+
+    Args:
+        pr_url: The PR URL recorded on the ticket.
+
+    Returns:
+        Whether the PR is merged and, if so, when.
+
+    Raises:
+        GhUnavailableError: gh is absent, timed out, or could not read the PR --
+            every "we cannot tell" case, so the caller skips rather than lies.
+    """
+    if not gh_available():
+        msg = "gh is not installed"
+        raise GhUnavailableError(msg)
+    if not pr_url.startswith(("http://", "https://")):
+        # `pr:` is a free-text ticket field; a value like "-x" would be read by
+        # gh as a flag. Insisting on a URL closes that without a shell in play.
+        msg = f"{pr_url!r} is not a pull-request URL"
+        raise GhUnavailableError(msg)
+    cmd = ["gh", "pr", "view", pr_url, "--json", "state,mergedAt"]
+    try:
+        # Fixed argv, no shell, and the only interpolated value is the PR url the
+        # ticket already carries -- gh is the same tool that opened the PR.
+        proc = subprocess.run(  # noqa: S603 -- fixed argv, no shell, trusted url.
+            cmd, capture_output=True, text=True, check=True, timeout=_GH_TIMEOUT
+        )
+    except FileNotFoundError as exc:  # gh vanished between the check and the call
+        msg = "gh is not installed"
+        raise GhUnavailableError(msg) from exc
+    except subprocess.TimeoutExpired as exc:
+        msg = f"gh timed out reading {pr_url}"
+        raise GhUnavailableError(msg) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip() or f"exit {exc.returncode}"
+        msg = f"gh could not read {pr_url}: {detail}"
+        raise GhUnavailableError(msg) from exc
+    return _parse_pr_state(proc.stdout)
+
+
+def merged_in_review(
+    tickets: list[Ticket],
+    view: Callable[[str], PrState],
+) -> list[MergedTicket]:
+    """Which in-review tickets already have a merged PR, in id order.
+
+    ``view`` is injected so the suite can answer without touching GitHub. A
+    ``GhUnavailableError`` from it propagates: the caller decides that "could
+    not check" means skip.
+    """
+    merged: list[MergedTicket] = []
+    for t in tickets:
+        if t.status != "in-review" or not t.pr:
+            continue
+        state = view(t.pr)
+        if state.merged:
+            merged.append(MergedTicket(t, state.merged_at))
+    return merged
+
+
+def _set_frontmatter_key(block: str, key: str, value: str) -> str:
+    """Set a frontmatter key, replacing the line if present or appending it.
+
+    ``closed`` is optional in the frontmatter -- ``parse_ticket`` does not
+    require it -- so a valid in-review ticket may not carry the line yet.
+    """
+    new, count = re.subn(rf"(?m)^{re.escape(key)}:.*$", f"{key}: {value}", block, count=1)
+    if count == 0:
+        return f"{block}\n{key}: {value}"
+    return new
+
+
+def _append_worklog(body: str, line: str) -> str:
+    marker = "\n## Work log"
+    start = body.find(marker)
+    if start == -1:
+        msg = "no '## Work log' section to append to"
+        raise TicketError(msg)
+    nxt = body.find("\n## ", start + len(marker))
+    cut = nxt if nxt != -1 else len(body)
+    head = body[:cut].rstrip("\n")
+    tail = body[cut:]
+    # Keep the blank line before the next heading (tail starts "\n## ...").
+    return f"{head}\n{line}\n{tail}" if tail else f"{head}\n{line}\n"
+
+
+def _closed_text(text: str, *, status: str, closed: str, updated: str, worklog_line: str) -> str:
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        msg = "frontmatter block is not closed"
+        raise TicketError(msg)
+    frontmatter, body = text[:end], text[end:]
+    frontmatter = _set_frontmatter_key(frontmatter, "status", status)
+    frontmatter = _set_frontmatter_key(frontmatter, "closed", closed)
+    frontmatter = _set_frontmatter_key(frontmatter, "updated", updated)
+    return frontmatter + _append_worklog(body, worklog_line)
+
+
+def close_ticket(
+    ticket_id: str,
+    *,
+    view: Callable[[str], PrState],
+    root: Path | None = None,
+    today: date | None = None,
+) -> tuple[Path, date]:
+    """Mark an in-review ticket done, dated by its merged pull request.
+
+    The human writes the ``## Outcome``; this refuses to close without one, so
+    the step that matters stays human. It sets ``status``, ``closed`` (the
+    merge date from GitHub) and ``updated``, and appends a Work log line. It
+    does not write the Outcome and does not regenerate the index -- the caller
+    runs ``index``/``sync`` after, as with every other ticket edit.
+
+    Returns:
+        The ticket path and the merge date written.
+
+    Raises:
+        TicketError: the ticket is unknown, not in-review, has no PR, has an
+            empty Outcome, or its PR is not merged.
+        GhUnavailableError: from ``view`` when GitHub could not be reached.
+    """
+    by_id = {t.id: t for t in load_tickets(root)}
+    ticket = by_id.get(ticket_id)
+    if ticket is None:
+        msg = f"{ticket_id}: no such ticket"
+        raise TicketError(msg)
+    if ticket.status != "in-review":
+        msg = f"{ticket_id}: only an in-review ticket can be closed, not {ticket.status!r}"
+        raise TicketError(msg)
+    if not ticket.pr:
+        msg = f"{ticket_id}: in-review but has no 'pr' to confirm the merge against"
+        raise TicketError(msg)
+    if not ticket.sections.get("Outcome"):
+        msg = f"{ticket_id}: '## Outcome' is empty -- write what shipped before closing"
+        raise TicketError(msg)
+    state = view(ticket.pr)
+    if not state.merged:
+        msg = f"{ticket_id}: PR {ticket.pr} is not merged yet"
+        raise TicketError(msg)
+    stamp = today or datetime.now(tz=UTC).date()
+    merge_date = state.merged_at or stamp
+    line = (
+        f"- {stamp.isoformat()} — closed by `go2 backlog close`; "
+        f"PR merged {merge_date.isoformat()}."
+    )
+    updated = _closed_text(
+        ticket.path.read_text(encoding="utf-8"),
+        status="done",
+        closed=merge_date.isoformat(),
+        updated=stamp.isoformat(),
+        worklog_line=line,
+    )
+    ticket.path.write_text(updated, encoding="utf-8")
+    return ticket.path, merge_date
