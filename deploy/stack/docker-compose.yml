@@ -1,0 +1,194 @@
+# The whole product on one machine, with nothing installed but Docker.
+#
+#   cp .env.example .env                        # set the five required values
+#   docker compose --profile samples up -d --build
+#   open http://localhost:3080
+#
+# One image for every go2 service, one Postgres, one LibreChat with its
+# MongoDB. LibreChat's own RAG API, its second pgvector and Meilisearch are
+# deliberately absent: retrieval is agentic search over one ingestion
+# pipeline, and a parallel retrieve-then-stuff path with its own copy of the
+# documents is the duplication the architecture exists to avoid.
+#
+# One stack serves one workspace, the same rule as one serving process. The
+# token answers "may you talk to this server"; GO2_TENANT in .env decides
+# which documents it serves. Runbook: README.md beside this file.
+
+name: go2
+
+x-go2: &go2
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  image: go2assistant:local
+  # Every GO2_* key in .env reaches the go2 services; the LibreChat secrets
+  # ride along and are ignored. LibreChat gets only what it needs, below.
+  env_file: .env
+  volumes:
+    # A named volume by default. Point GO2_MODELS_DIR at a directory that
+    # already holds the weights (a host's ~/.cache/go2/models, or the
+    # archive T-042 will produce) and nothing is downloaded.
+    - ${GO2_MODELS_DIR:-go2_models}:/models
+    - ${GO2_INGEST_DIR:-./samples}:/data:ro
+
+x-go2-env: &go2-env
+  # The database inside the Compose network, never the developer's 5433.
+  GO2_DATABASE_URL: postgresql+psycopg://go2:go2@db:5432/go2
+  GO2_MODEL_CACHE_DIR: /models
+  GO2_TENANT: ${GO2_TENANT:-demo}
+
+services:
+  db:
+    # The image CI tests against, so the stack and the suite are one database.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: go2
+      POSTGRES_PASSWORD: go2
+      POSTGRES_DB: go2
+    volumes:
+      - go2_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U go2"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Runs once per `up`: migrations, then the workspace. Both are idempotent,
+  # so a second `up` does nothing here and the server never starts against
+  # an unmigrated database or a workspace that does not exist.
+  init:
+    <<: *go2
+    environment: *go2-env
+    entrypoint: ["sh", "-ec"]
+    command:
+      - go2 migrate && go2 tenant create "$$GO2_TENANT"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  server:
+    <<: *go2
+    environment:
+      <<: *go2-env
+      # Required, with no default: the server binds the container's whole
+      # interface, and go2 refuses to bind beyond loopback without a token.
+      GO2_HTTP_TOKEN: ${GO2_HTTP_TOKEN:?set GO2_HTTP_TOKEN in deploy/stack/.env; the server refuses to bind without one}
+    # DNS-rebinding protection answers 400 to a Host header it does not
+    # know. LibreChat calls this container `server`; a client on the host
+    # calls it localhost or 127.0.0.1 on whatever port GO2_PORT maps.
+    command:
+      - serve
+      - --http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --allow-host
+      - server:8765
+      - --allow-host
+      - "localhost:*"
+      - --allow-host
+      - "127.0.0.1:*"
+    ports:
+      # Loopback only. The token stops an unauthenticated reader; a narrow
+      # bind means a leaked token is usable only from this machine.
+      - "127.0.0.1:${GO2_PORT:-8770}:8765"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8765), timeout=2).close()"
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    <<: *go2
+    environment: *go2-env
+    command: ["worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Indexes the synthetic sample corpus into the workspace, so a fresh stack
+  # has known answers before anything of yours is indexed. Only with
+  # `--profile samples`, so it never touches a workspace holding real files.
+  seed:
+    <<: *go2
+    environment: *go2-env
+    profiles: ["samples"]
+    command: ["ingest", "/app/deploy/stack/samples"]
+    depends_on:
+      db:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  mongodb:
+    image: mongo:8.0
+    command: mongod --noauth
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  librechat:
+    image: ghcr.io/danny-avila/librechat:v0.8.7
+    ports:
+      - "${LIBRECHAT_PORT:-3080}:3080"
+    # Passed one by one rather than as env_file, so go2's provider keys do
+    # not reach a container that has no use for them.
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3080"
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      DOMAIN_CLIENT: http://localhost:${LIBRECHAT_PORT:-3080}
+      DOMAIN_SERVER: http://localhost:${LIBRECHAT_PORT:-3080}
+      CONFIG_PATH: /app/librechat.yaml
+      SEARCH: "false"
+      ALLOW_REGISTRATION: "true"
+      ALLOW_EMAIL_LOGIN: "true"
+      NO_INDEX: "true"
+      CREDS_KEY: ${CREDS_KEY:?set CREDS_KEY in deploy/stack/.env (openssl rand -hex 32)}
+      CREDS_IV: ${CREDS_IV:?set CREDS_IV in deploy/stack/.env (openssl rand -hex 16)}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/stack/.env (openssl rand -hex 32)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in deploy/stack/.env (openssl rand -hex 32)}
+      # Substituted into librechat.yaml: the MCP bearer header and the Qwen key.
+      GO2_HTTP_TOKEN: ${GO2_HTTP_TOKEN:?set GO2_HTTP_TOKEN in deploy/stack/.env}
+      ALIBABA_API_KEY: ${GO2_DASHSCOPE_API_KEY:-}
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - librechat_data:/app/data
+      - librechat_uploads:/app/uploads
+      - librechat_images:/app/client/public/images
+      - librechat_logs:/app/logs
+    depends_on:
+      mongodb:
+        condition: service_started
+      # MCP servers are discovered once at LibreChat's start; if go2 is not
+      # answering by then the tool menu stays empty until a restart.
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  go2_pgdata:
+  go2_models:
+  mongo_data:
+  librechat_data:
+  librechat_uploads:
+  librechat_images:
+  librechat_logs:

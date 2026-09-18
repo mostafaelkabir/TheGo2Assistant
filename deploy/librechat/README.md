@@ -1,5 +1,9 @@
 # Chat UI
 
+> This is the developer-laptop arrangement: `go2` on the host, LibreChat in
+> its own checkout. To hand the product to someone, or to stand it up on a
+> machine with nothing but Docker, use [`../stack/`](../stack/README.md).
+
 LibreChat in front of Go2Assistant, so questions can be asked from a browser
 instead of a terminal.
 

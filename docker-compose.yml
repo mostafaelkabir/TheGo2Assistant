@@ -1,4 +1,5 @@
 # Dev database only. Not a deployment artifact -- the app runs on the host.
+# The deployable stack, with go2 itself in a container, is deploy/stack/.
 services:
   db:
     image: pgvector/pgvector:pg17

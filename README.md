@@ -135,6 +135,8 @@ Config is read from `~/.config/go2/.env`, then a project-local `.env` that overr
 
 **In a browser** — [`deploy/librechat/`](deploy/librechat/) runs LibreChat against `go2 serve --http`, one workspace per port.
 
+**On one machine with only Docker** — [`deploy/stack/`](deploy/stack/) stands the whole product up with `docker compose up`: server, worker, database and LibreChat, one workspace per stack, with a sample corpus and a smoke test.
+
 ---
 
 ## Testing

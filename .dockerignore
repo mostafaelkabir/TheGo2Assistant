@@ -1,0 +1,24 @@
+# What the image never needs. The build context is the repository root.
+.git
+.venv
+.env
+**/.env
+.secrets
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.pyrefly_cache
+.model-cache
+dist
+*.egg-info
+.DS_Store
+# Not shipped: the suite, the docs, the backlog, the eval sets for the
+# owner's workspaces, the developer-laptop LibreChat arrangement.
+tests
+docs
+backlog
+eval
+deploy/librechat
+.github
+.claude
