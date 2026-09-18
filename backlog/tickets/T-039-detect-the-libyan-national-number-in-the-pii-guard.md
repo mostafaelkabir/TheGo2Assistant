@@ -1,14 +1,14 @@
 ---
 id: T-039
 title: Detect the Libyan national number in the PII guard
-status: in-progress
+status: in-review
 phase: 2-gate
 priority: P2
 blocked_by: []
 github_issue:
 owner: Claude (Opus 4.8)
 branch: gate/libyan-national-id
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/28
 created: 2026-09-18
 updated: 2026-09-18
 closed:
@@ -103,5 +103,8 @@ control protects nothing.
   findings — the only hits are the worked national numbers written into
   this ticket. Owner to run `go2 scan` over `local` and `dawan` before
   merge and record the count in the Outcome.
+- 2026-09-18 — Independent review: APPROVE, no blockers. Added an
+  international-phone ordering regression test per the review. Opened
+  PR #28; status in-review.
 
 ## Outcome
