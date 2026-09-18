@@ -15,22 +15,35 @@ How to work from this file: [README.md](README.md).
 | [T-018](tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | 2-gate | P1 | ready | — | — | — | [#18](../../../issues/18) |
 | [T-019](tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Turn on tool-output redaction when the reader is not the owner | 2-gate | P1 | ready | T-016 | — | — | [#19](../../../issues/19) |
 | [T-021](tickets/T-021-cross-language-retrieval-falls-below-the-evidence-floor.md) | Cross-language retrieval falls below the evidence floor | 3-accuracy | P1 | ready | — | — | — | [#21](../../../issues/21) |
+| [T-034](tickets/T-034-produce-a-repeatable-qa-evidence-report.md) | Produce a repeatable QA evidence report | 0-process | P1 | ready | — | — | — | — |
 | [T-022](tickets/T-022-query-spreadsheet-tool.md) | query_spreadsheet: answer from the rows, not the summary | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-023](tickets/T-023-grow-the-eval-sets-to-several-hundred-questions.md) | Grow the eval sets to several hundred questions from real use | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-031](tickets/T-031-answer-level-eval-through-the-tool-loop.md) | Answer-level eval: judge the answer, not only the retrieval | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-032](tickets/T-032-harvest-real-questions-from-traces-into-eval-candidates.md) | Harvest real questions from traces into eval candidates | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-033](tickets/T-033-eval-baselines-in-one-file-not-three-documents.md) | Eval baselines in one file, not three documents | 3-accuracy | P2 | ready | — | — | — | — |
+| [T-038](tickets/T-038-normalise-arabic-in-the-full-text-leg-of-hybrid-search.md) | Normalise Arabic in the full-text leg of hybrid search | 3-accuracy | P2 | ready | — | — | — | — |
+| [T-039](tickets/T-039-detect-the-libyan-national-number-in-the-pii-guard.md) | Detect the Libyan national number in the PII guard | 2-gate | P2 | ready | — | — | — | — |
+| [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
+| [T-046](tickets/T-046-close-in-review-tickets-whose-pr-has-merged.md) | Close in-review tickets whose PR has merged | 0-process | P3 | ready | — | — | — | — |
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | backlog | T-010 | — | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
+| [T-035](tickets/T-035-verify-the-first-live-google-drive-user-journey.md) | Verify the first live Google Drive user journey | 1-drive | P1 | backlog | T-012 | — | — | — |
+| [T-036](tickets/T-036-test-client-boundaries-through-real-mcp-tools.md) | Test client boundaries through real MCP tools | 2-gate | P1 | backlog | T-019 | — | — | — |
 | [T-013](tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the drive.file scope | 1-drive | P2 | backlog | T-012 | — | — | [#13](../../../issues/13) |
 | [T-014](tickets/T-014-incremental-sync-persist-and-resume-from-the-cursor.md) | Incremental sync: persist and resume from the cursor | 1-drive | P2 | backlog | T-012 | — | — | [#14](../../../issues/14) |
 | [T-015](tickets/T-015-deletions-must-drop-their-chunks.md) | Deletions must drop their chunks | 1-drive | P2 | backlog | T-014 | — | — | [#15](../../../issues/15) |
 | [T-027](tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles: resolve the tenant from the principal | 2-gate | P2 | backlog | T-016, T-017 | — | — | — |
+| [T-037](tickets/T-037-confirm-freshness-recovery-and-pilot-acceptance.md) | Confirm freshness, recovery and pilot acceptance | 2-gate | P2 | backlog | T-030, T-014, T-015, T-031, T-033 | — | — | — |
+| [T-040](tickets/T-040-an-all-local-answering-path-measured-against-the-eval-sets.md) | An all-local answering path, measured against the eval sets | 5-on-prem | P2 | backlog | T-018, T-031 | — | — | — |
+| [T-043](tickets/T-043-onboard-a-new-workspace-in-under-a-day-runbook-and-eval-scaffold.md) | Onboard a new workspace in under a day: runbook and eval scaffold | 2-gate | P2 | backlog | T-017, T-033 | — | — | — |
+| [T-045](tickets/T-045-a-scanned-arabic-eval-set-before-the-bank-tier-is-promised.md) | A scanned-Arabic eval set before the bank tier is promised | 5-on-prem | P2 | backlog | T-018 | — | — | — |
 | [T-024](tickets/T-024-onedrive-connector-over-graph-delta.md) | OneDrive connector over Graph /delta | 4-second-connector | P3 | backlog | T-015 | — | — | — |
 | [T-026](tickets/T-026-hosted-deployment-behind-authentication.md) | Hosted deployment behind authentication | 4-second-connector | P3 | backlog | T-016, T-019 | — | — | — |
 | [T-028](tickets/T-028-mirror-source-permissions-so-a-reader-sees-only-files-shared.md) | Mirror source permissions so a reader sees only files shared with them | 2-gate | P3 | backlog | T-027, T-012 | — | — | — |
+| [T-041](tickets/T-041-audit-trail-who-asked-what-was-cited-exportable-and-retained.md) | Audit trail: who asked, what was cited, exportable and retained | 5-on-prem | P3 | backlog | T-027 | — | — | — |
+| [T-042](tickets/T-042-install-with-no-internet-models-and-packages-vendored.md) | Install with no internet: models and packages vendored | 5-on-prem | P3 | backlog | T-040 | — | — | — |
 
 ## Closed
 

@@ -109,7 +109,7 @@ Priorities: `P0` gates something (a demo, a release); `P1` is next; `P2`
 matters and can wait; `P3` is recorded so it is not forgotten.
 
 Phases match the roadmap: `0-process`, `1-drive`, `2-gate`, `3-accuracy`,
-`4-second-connector`.
+`4-second-connector`, `5-on-prem`.
 
 ## Commands
 
