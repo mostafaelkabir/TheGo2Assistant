@@ -1,14 +1,14 @@
 ---
 id: T-010
 title: Encrypt OAuth credentials at rest
-status: in-progress
+status: in-review
 phase: 1-drive
 priority: P1
 blocked_by: []
 github_issue: 10
 owner: Claude (Opus 4.8)
 branch: drive/encrypt-oauth-at-rest
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/30
 created: 2026-09-03
 updated: 2026-09-18
 closed:
@@ -65,5 +65,11 @@ so there is one place to audit.
 - 2026-09-18 — Claimed by Claude (Opus 4.8) on branch
   drive/encrypt-oauth-at-rest. Reconciled the key env var to the shipped
   `GO2_FERNET_KEY` placeholder (see Definition note).
+- 2026-09-18 — Implemented `go2/security/tokens.py`, wired
+  `ensure_connection`/`load_token`; 9 tests (5 named + DB round-trip,
+  tenant isolation, no-token re-ensure guard). Independent security review:
+  no blockers; documented the conflict-does-not-update-token behaviour and
+  pinned it with a test. Noted key-rotation (single Fernet) as a T-011
+  follow-up. Opened PR #30; in-review.
 
 ## Outcome
