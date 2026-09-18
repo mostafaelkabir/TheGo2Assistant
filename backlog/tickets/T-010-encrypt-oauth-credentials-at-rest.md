@@ -1,16 +1,16 @@
 ---
 id: T-010
 title: Encrypt OAuth credentials at rest
-status: ready
+status: in-progress
 phase: 1-drive
 priority: P1
 blocked_by: []
 github_issue: 10
-owner:
-branch:
+owner: Claude (Opus 4.8)
+branch: drive/encrypt-oauth-at-rest
 pr:
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-18
 closed:
 ---
 
@@ -25,11 +25,18 @@ column is already there waiting.
 ## Definition
 
 Encrypt and decrypt helpers beside the other security code, so one place
-knows the format. Key from config (`GO2_TOKEN_KEY`), never from code. An
-absent key fails loudly at startup, not at first use. `ensure_connection`
+knows the format. Key from config (`GO2_FERNET_KEY`), never from code. An
+absent key fails loudly the moment a real token is encrypted or decrypted,
+with an actionable message and no plaintext written. `ensure_connection`
 stores ciphertext; a loader returns the plaintext to the caller only.
 
 Out of scope: the OAuth flow itself (T-011).
+
+Note on the key name: this ticket originally said `GO2_TOKEN_KEY`, but a
+`fernet_key` / `GO2_FERNET_KEY` placeholder was later added to `config.py`
+and `.env.example` (unused until now). Using the already-shipped, already
+advertised name avoids renaming a secret env var and silently orphaning a
+value the owner may already have set. Reconciled to `GO2_FERNET_KEY`.
 
 ## Success metrics
 
@@ -55,5 +62,8 @@ so there is one place to audit.
 
 - 2026-09-03 — Opened as GitHub issue #10.
 - 2026-09-16 — Mirrored into the local backlog.
+- 2026-09-18 — Claimed by Claude (Opus 4.8) on branch
+  drive/encrypt-oauth-at-rest. Reconciled the key env var to the shipped
+  `GO2_FERNET_KEY` placeholder (see Definition note).
 
 ## Outcome
