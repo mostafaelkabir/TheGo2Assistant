@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from sqlalchemy import text
 
 from go2.config import get_settings
+from go2.security.tokens import decrypt_token, encrypt_token
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -278,9 +279,21 @@ def put_cached_extraction(
 
 
 def ensure_connection(
-    conn: Connection, *, tenant_id: str, source: str, account: str, token_blob: bytes = b""
+    conn: Connection, *, tenant_id: str, source: str, account: str, token: str = ""
 ) -> str:
-    """Return the id of a connection row, creating it if absent."""
+    """Return the id of a connection row, creating it if absent.
+
+    ``token`` is the OAuth credential in plaintext. It is encrypted here so only
+    ciphertext reaches the ``token_blob`` column; an empty token (the upload
+    path) stores empty bytes and needs no key.
+
+    The token is written on **creation only**. On conflict the existing row is
+    kept and its ``token_blob`` is left untouched -- deliberately, so that the
+    repeated no-token calls on the upload path cannot wipe a stored credential.
+    Refreshing an existing connection's token is therefore a separate operation,
+    which lands with the OAuth flow (T-011); passing a new ``token`` for an
+    account that already exists here does not persist it.
+    """
     row = conn.execute(
         text("""
             INSERT INTO connections (tenant_id, source, account, token_blob)
@@ -288,9 +301,39 @@ def ensure_connection(
             ON CONFLICT (tenant_id, source, account) DO UPDATE SET account = EXCLUDED.account
             RETURNING id
         """),
-        {"tenant_id": tenant_id, "source": source, "account": account, "token_blob": token_blob},
+        {
+            "tenant_id": tenant_id,
+            "source": source,
+            "account": account,
+            "token_blob": encrypt_token(token),
+        },
     ).scalar_one()
     return str(row)
+
+
+def load_token(conn: Connection, *, tenant_id: str, connection_id: str) -> str:
+    """Return the plaintext OAuth credential for a connection.
+
+    The ciphertext is decrypted here and never leaves this function; the caller
+    receives plaintext only. Scoped by ``tenant_id`` -- a credential is the last
+    thing that should be readable across workspaces.
+
+    Raises:
+        KeyError: no such connection for this tenant.
+        TokenDecryptError: the stored blob does not decrypt with the configured
+            key (from ``go2.security.tokens``).
+    """
+    row = conn.execute(
+        text("""
+            SELECT token_blob FROM connections
+             WHERE id = :connection_id AND tenant_id = :tenant_id
+        """),
+        {"connection_id": connection_id, "tenant_id": tenant_id},
+    ).scalar_one_or_none()
+    if row is None:
+        msg = f"no connection {connection_id} for this tenant"
+        raise KeyError(msg)
+    return decrypt_token(bytes(row))
 
 
 def save_cursor(conn: Connection, *, connection_id: str, cursor: str | None) -> None:
