@@ -1,13 +1,13 @@
 ---
 id: T-046
 title: Close in-review tickets whose PR has merged
-status: ready
+status: in-progress
 phase: 0-process
 priority: P3
 blocked_by: []
 github_issue:
-owner:
-branch:
+owner: Claude (Opus 4.8)
+branch: process/backlog-pr-close
 pr:
 created: 2026-09-18
 updated: 2026-09-18
@@ -67,5 +67,7 @@ Mock the `gh` call in tests; do not call GitHub from the suite.
 
 - 2026-09-18 — Opened from the roadmap's Phase 0 gap, so a parallel agent
   can take it.
+- 2026-09-18 — Claimed by Claude (Opus 4.8) on branch
+  process/backlog-pr-close.
 
 ## Outcome
