@@ -15,13 +15,17 @@ from sqlalchemy import text
 from go2 import backlog as backlog_store
 from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
+from go2.connectors.gdrive import GoogleDriveConnector
 from go2.connectors.google_auth import SOURCE as GDRIVE_SOURCE
 from go2.connectors.google_auth import (
     AuthorizationFailedError,
     ClientSecretsNotFoundError,
+    RevokedCredentialError,
     account_email,
     build_drive_service,
+    credentials_from_token,
     credentials_to_token,
+    ensure_fresh,
     run_installed_app_flow,
 )
 from go2.evaluation import (
@@ -42,6 +46,7 @@ from go2.rag.retrieval import search as run_search
 from go2.scope import Scope
 from go2.security.pii import redact as redact_pii
 from go2.security.scan import scan_files
+from go2.security.tokens import TokenDecryptError, TokenKeyError
 from go2.storage import repository as repo
 from go2.storage.db import connect
 from go2.storage.db import migrate as run_migrations
@@ -189,6 +194,131 @@ def _describe(result: IngestResult) -> str:
     if result.ocr_pages:
         detail += f", {result.ocr_pages} pages awaiting OCR"
     return detail
+
+
+def _choose_connection(
+    connections: list[repo.ConnectionSummary], account: str
+) -> repo.ConnectionSummary | None:
+    """Pick the one connection a sync should use, or explain why it can't."""
+    if not connections:
+        typer.echo(
+            "no Google Drive connection for this workspace. Run `go2 connect google` first.",
+            err=True,
+        )
+        return None
+    if account:
+        match = next((c for c in connections if c.account == account), None)
+        if match is None:
+            known = ", ".join(c.account for c in connections)
+            typer.echo(f"no connection for {account!r}. Connected: {known}", err=True)
+            return None
+        return match
+    if len(connections) > 1:
+        known = ", ".join(c.account for c in connections)
+        typer.echo(f"multiple accounts connected; pick one with --account: {known}", err=True)
+        return None
+    return connections[0]
+
+
+@app.command()
+def sync(
+    *,
+    source: str = typer.Option(default=GDRIVE_SOURCE, help="Connector to sync from."),
+    limit: Annotated[int | None, typer.Option(help="Stop after fetching this many files.")] = None,
+    account: str = typer.Option(
+        default="", help="Which connected account, if more than one is connected."
+    ),
+) -> None:
+    """Pull files from a connected source into the index.
+
+    Only `gdrive` exists today; run `go2 connect google` first. Each run
+    lists everything the account's `drive.file` grant currently covers --
+    there is no persisted cursor yet (T-014), so a repeat run re-lists the
+    whole account, but already-ingested files still skip re-embedding on
+    their content hash, the same short-circuit `go2 ingest` uses. Until
+    T-013's picker lands, that grant is only files the account explicitly
+    opened with this app or shared with it, so a fresh connection with
+    nothing shared yet will legitimately list zero files.
+    """
+    # googleapiclient logs an informational line about a missing optional
+    # dependency on every discovery build; it drowns the per-file report
+    # this command exists to print, same reason backlog_sync quiets httpx.
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
+
+    if source != GDRIVE_SOURCE:
+        typer.echo(
+            f"unsupported source {source!r}; only {GDRIVE_SOURCE!r} exists so far.", err=True
+        )
+        raise typer.Exit(code=1)
+
+    tenant_id = resolve_tenant_id()
+    with connect() as conn:
+        connections = repo.find_connections(conn, tenant_id=tenant_id, source=GDRIVE_SOURCE)
+    chosen = _choose_connection(connections, account)
+    if chosen is None:
+        raise typer.Exit(code=1)
+
+    try:
+        with connect() as conn:
+            token = repo.load_token(conn, tenant_id=tenant_id, connection_id=chosen.id)
+    except (TokenKeyError, TokenDecryptError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    credentials = credentials_from_token(token)
+    was_expired = credentials.expired
+    try:
+        ensure_fresh(credentials, account=chosen.account)
+    except RevokedCredentialError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if was_expired:
+        with connect() as conn:
+            repo.upsert_connection_token(
+                conn,
+                tenant_id=tenant_id,
+                source=GDRIVE_SOURCE,
+                account=chosen.account,
+                token=credentials_to_token(credentials),
+            )
+
+    connector = GoogleDriveConnector(build_drive_service(credentials))
+    changes = connector.list_changes(None)
+    # A full listing (cursor=None) never actually contains a deletion -- Drive's
+    # file-list endpoint excludes trashed files outright -- but the connector's
+    # contract allows one in general, so this is defensive, not dead code.
+    files = [f for f in changes.files if not f.deleted]
+    if limit is not None:
+        files = files[:limit]
+
+    if not files:
+        typer.echo(f"nothing to sync for {chosen.account}")
+        return
+
+    scope = Scope(tenant_id=tenant_id, connection_id=chosen.id, source=GDRIVE_SOURCE)
+    tally: Counter[str] = Counter()
+    total = len(files)
+    started = time.monotonic()
+
+    for index, remote in enumerate(files, start=1):
+        try:
+            content = connector.fetch_content(remote)
+        except Exception as exc:  # noqa: BLE001 -- one bad file must not stop the sync.
+            typer.echo(f"{'failed':9} {remote.title}  (fetch failed: {exc})")
+            tally["failed"] += 1
+            continue
+
+        with connect() as conn:
+            result = ingest_document(conn, scope=scope, remote=remote, content=content)
+
+        typer.echo(
+            f"[{index:>{len(str(total))}}/{total}] {result.status:9} {remote.title}"
+            f"  ({_describe(result)}){_eta(started, index, total)}"
+        )
+        tally["unchanged" if result.unchanged else result.status] += 1
+
+    summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()) if count)
+    typer.echo(f"\n{summary} in {time.monotonic() - started:.0f}s")
 
 
 @app.command()

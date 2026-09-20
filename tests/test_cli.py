@@ -17,10 +17,12 @@ from typer.testing import CliRunner
 
 from go2.cli import _collect, app
 from go2.config import Settings, get_settings
+from go2.connectors.base import ChangeSet, FetchedContent, RemoteFile
 from go2.jobs.worker import INGEST_FILE, run_worker
 from go2.storage import repository as repo
 from go2.storage.db import connect
 from go2.tenancy import create_tenant, delete_tenant, resolve_tenant_id
+from go2.tools.search import list_documents
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -477,3 +479,179 @@ class TestConnectGoogle:
             token = repo.load_token(conn, tenant_id=tenant_id, connection_id=str(connection_id))
         assert count == 1
         assert token == "second-token"
+
+
+class _FakeCredentials:
+    """A never-expired stand-in; refresh is google_auth's own module's to test."""
+
+    expired = False
+
+
+class _FakeSyncConnector:
+    """Stands in for GoogleDriveConnector, so `sync` tests never touch Drive."""
+
+    def __init__(
+        self, files: list[RemoteFile], *, fail_titles: frozenset[str] = frozenset()
+    ) -> None:
+        self._files = files
+        self._fail_titles = fail_titles
+        self.fetched: list[str] = []
+
+    def list_changes(self, cursor: str | None) -> ChangeSet:
+        assert cursor is None  # T-012 never persists one -- see the ticket's Definition.
+        return ChangeSet(files=self._files, cursor="a-cursor", has_more=False)
+
+    def fetch_content(self, remote: RemoteFile) -> FetchedContent:
+        self.fetched.append(remote.title)
+        if remote.title in self._fail_titles:
+            msg = f"simulated fetch failure for {remote.title}"
+            raise RuntimeError(msg)
+        # Mirrors GoogleDriveConnector.fetch_content: a non-exported file keeps
+        # its own MIME type, which is what extraction dispatches on.
+        return FetchedContent(
+            data=f"This is the synced content of {remote.title}, long enough to embed.".encode(),
+            filename=remote.title,
+            mime=remote.mime,
+        )
+
+
+@pytest.mark.slow
+class TestSyncCommand:
+    """`go2 sync --source gdrive`, with the connector faked out.
+
+    `tests/test_connector_contract.py` and `tests/test_gdrive.py` already
+    cover the real connector's own behaviour; what this command adds on top
+    -- choosing a connection, refreshing its credential, and driving files
+    through the same pipeline `go2 ingest` uses -- is what these tests cover.
+    """
+
+    @pytest.fixture
+    def tenant(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+        monkeypatch.setenv("GO2_FERNET_KEY", Fernet.generate_key().decode())
+        slug = f"t-{uuid.uuid4().hex[:10]}"
+        monkeypatch.setenv("GO2_TENANT", slug)
+        get_settings.cache_clear()
+        create_tenant(slug)
+        tenant_id = resolve_tenant_id(slug)
+        with connect() as conn:
+            repo.upsert_connection_token(
+                conn,
+                tenant_id=tenant_id,
+                source="gdrive",
+                account="me@example.com",
+                token="a-stored-token",
+            )
+        try:
+            yield slug
+        finally:
+            delete_tenant(slug)
+            get_settings.cache_clear()
+
+    @staticmethod
+    def _stub_connector(
+        monkeypatch: pytest.MonkeyPatch,
+        files: list[RemoteFile],
+        *,
+        fail_titles: frozenset[str] = frozenset(),
+    ) -> _FakeSyncConnector:
+        connector = _FakeSyncConnector(files, fail_titles=fail_titles)
+        monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: _FakeCredentials())
+        monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
+        monkeypatch.setattr("go2.cli.GoogleDriveConnector", lambda _service: connector)
+        return connector
+
+    @staticmethod
+    def _file(title: str) -> RemoteFile:
+        return RemoteFile(external_id=f"drive-{title}", title=title, mime="text/plain")
+
+    @pytest.mark.usefixtures("tenant")
+    def test_synced_files_go_through_the_same_pipeline(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_connector(monkeypatch, [self._file("Contract.txt")])
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert "Contract.txt" in result.output
+        assert "indexed" in result.output
+        docs = list_documents(source="gdrive")
+        assert len(docs) == 1
+        assert docs[0]["status"] == "indexed"
+
+    def test_sync_is_scoped_to_the_active_tenant(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_connector(monkeypatch, [self._file("Contract.txt")])
+        runner.invoke(app, ["sync"])
+
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            row = conn.execute(
+                text("SELECT tenant_id FROM documents WHERE source = 'gdrive' LIMIT 1")
+            ).scalar_one()
+        assert str(row) == tenant_id
+
+    @pytest.mark.usefixtures("tenant")
+    def test_limit_stops_early(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        connector = self._stub_connector(
+            monkeypatch, [self._file("One.txt"), self._file("Two.txt"), self._file("Three.txt")]
+        )
+
+        result = runner.invoke(app, ["sync", "--limit", "1"])
+
+        assert result.exit_code == 0, result.output
+        assert connector.fetched == ["One.txt"]
+
+    @pytest.mark.usefixtures("tenant")
+    def test_an_unsupported_file_is_skipped_not_failed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unsupported = RemoteFile(
+            external_id="drive-archive", title="archive.zip", mime="application/zip"
+        )
+        self._stub_connector(monkeypatch, [unsupported])
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert "skipped" in result.output
+        assert "failed" not in result.output
+
+    @pytest.mark.usefixtures("tenant")
+    def test_one_bad_file_does_not_abort_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_connector(
+            monkeypatch,
+            [self._file("1-bad.txt"), self._file("2-good.txt")],
+            fail_titles=frozenset({"1-bad.txt"}),
+        )
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert "fetch failed" in result.output
+        assert "2-good.txt" in result.output
+        docs = list_documents(source="gdrive")
+        assert len(docs) == 1
+        assert docs[0]["title"] == "2-good.txt"
+
+    @pytest.mark.usefixtures("tenant")
+    def test_source_is_recorded_as_gdrive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_connector(monkeypatch, [self._file("Contract.txt")])
+        runner.invoke(app, ["sync"])
+
+        assert len(list_documents(source="gdrive")) == 1
+        assert list_documents(source="upload") == []
+
+    def test_without_a_connection_it_names_the_fix(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            conn.execute(text("DELETE FROM connections WHERE tenant_id = :t"), {"t": tenant_id})
+        self._stub_connector(monkeypatch, [])
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 1
+        assert "go2 connect google" in result.output

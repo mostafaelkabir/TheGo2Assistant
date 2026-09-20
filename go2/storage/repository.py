@@ -341,6 +341,31 @@ def upsert_connection_token(
     return str(row)
 
 
+@dataclass(frozen=True, slots=True)
+class ConnectionSummary:
+    """A stored connection, without its credential."""
+
+    id: str
+    account: str
+
+
+def find_connections(conn: Connection, *, tenant_id: str, source: str) -> list[ConnectionSummary]:
+    """Every connection for a tenant and source, without decrypting anything.
+
+    A sync command uses this to find which stored connection to load a
+    credential from -- it needs the id before it can call ``load_token``.
+    """
+    rows = conn.execute(
+        text("""
+            SELECT id, account FROM connections
+             WHERE tenant_id = :tenant_id AND source = :source
+             ORDER BY account
+        """),
+        {"tenant_id": tenant_id, "source": source},
+    ).all()
+    return [ConnectionSummary(id=str(r.id), account=r.account) for r in rows]
+
+
 def load_token(conn: Connection, *, tenant_id: str, connection_id: str) -> str:
     """Return the plaintext OAuth credential for a connection.
 
