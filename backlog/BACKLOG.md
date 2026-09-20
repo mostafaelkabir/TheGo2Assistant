@@ -10,7 +10,6 @@ How to work from this file: [README.md](README.md).
 
 | Id | Title | Phase | Pri | Status | Blocked by | Holder | PR | Issue |
 |---|---|---|---|---|---|---|---|---|
-| [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | ready | T-010 | — | — | [#11](../../../issues/11) |
 | [T-017](tickets/T-017-split-local-into-real-per-project-workspaces.md) | Split local into real per-project workspaces | 2-gate | P1 | ready | — | — | — | [#17](../../../issues/17) |
 | [T-018](tickets/T-018-ocr-for-scanned-documents.md) | OCR for scanned documents | 2-gate | P1 | ready | — | — | — | [#18](../../../issues/18) |
 | [T-019](tickets/T-019-tool-output-redaction-when-the-reader-is-not-the-owner.md) | Turn on tool-output redaction when the reader is not the owner | 2-gate | P1 | ready | T-016 | — | — | [#19](../../../issues/19) |
@@ -25,6 +24,7 @@ How to work from this file: [README.md](README.md).
 | [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-048](tickets/T-048-local-embedding-rerank-providers-miss-the-evidence-floor-and.md) | Local embedding/rerank providers miss the evidence floor and peg the CPU inside the stack container | 2-gate | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
+| [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | in-progress | T-010 | Claude (Sonnet 5) · `drive/google-oauth-connect` | — | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
 | [T-035](tickets/T-035-verify-the-first-live-google-drive-user-journey.md) | Verify the first live Google Drive user journey | 1-drive | P1 | backlog | T-012 | — | — | — |

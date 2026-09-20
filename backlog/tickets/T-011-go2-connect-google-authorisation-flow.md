@@ -1,16 +1,16 @@
 ---
 id: T-011
 title: "go2 connect google: the authorisation flow"
-status: ready
+status: in-progress
 phase: 1-drive
 priority: P1
 blocked_by: [T-010]
 github_issue: 11
-owner:
-branch:
+owner: Claude (Sonnet 5)
+branch: drive/google-oauth-connect
 pr:
 created: 2026-09-03
-updated: 2026-09-18
+updated: 2026-09-20
 closed:
 ---
 
@@ -55,5 +55,8 @@ plaintext in the database, even briefly.
 - 2026-09-16 — Mirrored into the local backlog.
 
 - 2026-09-18 — T-010 closed; unblocked, set ready.
+
+- 2026-09-20 — Claimed by Claude (Sonnet 5) on `drive/google-oauth-connect`,
+  picked as the top of the roadmap's unclaimed "Now" chain (T-010 → T-012).
 
 ## Outcome
