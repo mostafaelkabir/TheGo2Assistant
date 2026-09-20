@@ -1,7 +1,7 @@
 ---
 id: T-047
 title: "One-command local stack: go2, Postgres and LibreChat in Docker Compose"
-status: in-review
+status: done
 phase: 2-gate
 priority: P1
 blocked_by: []
@@ -10,8 +10,8 @@ owner: Claude (Fable 5.1)
 branch: deploy/local-stack
 pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/31
 created: 2026-09-18
-updated: 2026-09-18
-closed:
+updated: 2026-09-20
+closed: 2026-09-18
 ---
 
 ## Problem
@@ -168,5 +168,54 @@ runs, not what it calls.
 - 2026-09-18 — Opened PR #31; in-review. Toolchain clean, full suite
   444 passed nothing skipped.
 
+- 2026-09-20 — PR #31 merged 2026-09-18. Closed: status set to `done`,
+  Outcome written, follow-up opened as T-048 for the local-provider
+  evidence-floor gap found during stand-up.
+
 ## Outcome
+
+Shipped `deploy/stack/`: root `Dockerfile` (Python 3.12, `uv.lock`
+`--locked --no-dev`, non-root user, model cache volume, `go2` entrypoint),
+`docker-compose.yml` (`db`, one-shot `init`, `server`, `worker`, an
+optional `seed` behind a `samples` profile, `mongodb`, `librechat`),
+`.env.example`, `librechat.yaml`, a six-file synthetic `samples/` corpus
+with `eval.yaml`, `smoke.py`, and `README.md`. `.mcp.json` gained a
+`go2stack` entry so Claude Code can QA the running stack directly. 15
+tests added in `tests/test_stack.py`.
+
+Success metrics as measured (owner's M2, 16 GB):
+
+- **Stand-up wall clock**: image build 1m51s at 742 MB; the full
+  clean-checkout-to-cited-answer time was not separately stopwatched
+  beyond the build, so the ticket's "under 30 minutes" figure is not
+  backed by a recorded total — the build alone is well inside it, and
+  nothing in the stand-up log suggests the remaining steps (compose up,
+  first-boot model download, ingesting six small samples) approached the
+  budget, but this is an honest gap, not a rounding of a real number.
+- **`smoke.py`**: passed — three tools listed, cited answer (Acme
+  termination clause, score 0.39), document fetched, 401 without the
+  token.
+- **`docker compose config` / missing-token behavior**: validated; compose
+  refuses to start without `GO2_HTTP_TOKEN` via the `${VAR:?}` form, per
+  `test_server_binds_all_interfaces_only_with_a_required_token`.
+- **Zero-egress with local providers**: **not fully met**. With
+  `GO2_EMBEDDING_PROVIDER=local` / `GO2_RERANK_PROVIDER=local` the sample
+  eval ran hot and pegged a CPU core inside the container, and one
+  sample question's top passage landed under the 0.30 evidence floor. The
+  *test* stack was switched to the Jina providers (reachable from the
+  container over IPv4; the host's own route to `api.jina.ai` black-holes
+  over IPv6) to get a clean 7/7 eval — search dropped to ~2 s and the
+  laptop stayed idle. `local` is still the shipped on-prem default
+  (invariant 6 unchanged), but that default's own behavior under
+  container resource limits was not verified passing. Tracked as
+  T-048.
+- **Image size / build time baseline for T-042**: recorded — 742 MB,
+  1m51s.
+
+Left out, as scoped: a remote hosted deployment (T-026), an offline
+archive with vendored models (T-042), a Windows installer, LibreChat SSO,
+multi-workspace-per-stack, the Google Drive path (T-011/T-012), and Docker
+in CI. Left out, found during the work rather than scoped out: verifying
+the `local` provider default actually clears the evidence floor under this
+container's resource limits — T-048.
 
