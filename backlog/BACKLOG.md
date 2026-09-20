@@ -24,7 +24,7 @@ How to work from this file: [README.md](README.md).
 | [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-048](tickets/T-048-local-embedding-rerank-providers-miss-the-evidence-floor-and.md) | Local embedding/rerank providers miss the evidence floor and peg the CPU inside the stack container | 2-gate | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
-| [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | in-progress | T-010 | Claude (Sonnet 5) · `drive/google-oauth-connect` | — | [#11](../../../issues/11) |
+| [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | in-review | T-010 | Claude (Sonnet 5) · `drive/google-oauth-connect` | [32](https://github.com/mostafaelkabir/TheGo2Assistant/pull/32) | [#11](../../../issues/11) |
 | [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | backlog | T-011 | — | — | [#12](../../../issues/12) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
 | [T-035](tickets/T-035-verify-the-first-live-google-drive-user-journey.md) | Verify the first live Google Drive user journey | 1-drive | P1 | backlog | T-012 | — | — | — |
