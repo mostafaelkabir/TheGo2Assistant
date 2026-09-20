@@ -1,14 +1,14 @@
 ---
 id: T-012
 title: "go2 sync: drive the connector from the CLI"
-status: in-progress
+status: in-review
 phase: 1-drive
 priority: P1
 blocked_by: [T-011]
 github_issue: 12
 owner: Claude (Sonnet 5)
 branch: drive/sync-cli
-pr:
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/33
 created: 2026-09-03
 updated: 2026-09-20
 closed:
@@ -70,5 +70,19 @@ worth surfacing to whoever runs this, not a bug to chase.
   the picker is T-013) before claiming, per the ticket workflow. Claimed
   by Claude (Sonnet 5) on `drive/sync-cli` -- the owner connected a real
   Google account with T-011 and wants to search real Drive files next.
+
+- 2026-09-20 — Implemented `go2 sync`: resolves the tenant's connection,
+  refreshes its credential if expired (re-persisting the new one),
+  lists with `cursor=None`, runs each file through `ingest_document`.
+  Verified live against the owner's real connected account: correctly
+  loaded and used the stored credential, printed "nothing to sync" --
+  expected, since `drive.file` without T-013's picker has nothing shared
+  with the app yet. All 6 named test cases pass; full suite 467 passed.
+  Both retrieval evals matched their baselines (local 16/17 MRR 0.94,
+  dawan 19/20 MRR 0.97). Pre-PR review found no blockers; its three notes
+  (untested refresh-and-repersist path, two untested `_choose_connection`
+  branches, and the `dawan` success metric needing a live run to verify)
+  were addressed -- the first two with new tests, the third left to the
+  owner as the next manual step. Opened PR #33; in-review.
 
 ## Outcome
