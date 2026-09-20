@@ -1,7 +1,7 @@
 ---
 id: T-011
 title: "go2 connect google: the authorisation flow"
-status: in-review
+status: done
 phase: 1-drive
 priority: P1
 blocked_by: [T-010]
@@ -11,7 +11,7 @@ branch: drive/google-oauth-connect
 pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/32
 created: 2026-09-03
 updated: 2026-09-20
-closed:
+closed: 2026-09-20
 ---
 
 ## Problem
@@ -81,4 +81,44 @@ plaintext in the database, even briefly.
   rejected, loopback timeout) in `AuthorizationFailedError` instead of
   letting a raw traceback reach the terminal. Opened PR #32; in-review.
 
+- 2026-09-20 — PR #32 merged. Owner ran `go2 connect google` against a real
+  Google account on the OAuth consent screen: hit the expected "unverified
+  app" Testing-mode block (added as a test user to clear it), then
+  completed the flow. `go2 tenant list` showed `connected:
+  gdrive:melkabir91@gmail.com` under `local`. Closed.
+
 ## Outcome
+
+Shipped `go2/connectors/google_auth.py` (installed-app OAuth flow pinned to
+`drive.file`, `ensure_fresh` for a silent refresh, `RevokedCredentialError`
+and `AuthorizationFailedError` naming the fix instead of a raw traceback,
+`account_email` via `about.get` since `drive.file` carries no identity
+scope), `repo.upsert_connection_token` (create-or-reauthorize, distinct
+from `ensure_connection`'s never-clobber contract), the `go2 connect
+google` CLI command, and a `tenant list` connections line.
+
+Success metrics as measured:
+
+- **`go2 connect google` completes and `go2 tenant list` shows a Drive
+  connection**: met, and verified twice over -- once in the test suite
+  against stubbed flow functions, and once for real by the owner against
+  Google's live OAuth servers with a real Gmail account. `tenant list`
+  printed `connected: gdrive:melkabir91@gmail.com`.
+- **The connection row holds ciphertext**: met, `test_credentials_are_stored_encrypted`.
+- **An expired access token refreshes without a re-prompt**: met for the
+  primitive (`ensure_fresh`, unit-tested against a fake credential) -- not
+  yet exercised against a real expired Google token, since nothing calls
+  it on a live credential until T-012's sync loop does.
+
+All 6 named test cases pass. Full suite 457 passed, nothing skipped
+(local providers, `HF_HUB_OFFLINE=1`, Postgres on 5433). Both retrieval
+evals matched their baselines exactly (`local` 16/17 MRR 0.94, `dawan`
+19/20 MRR 0.97) -- `repository.py`'s new function is additive, as
+expected. Independent pre-PR review found no blockers; its two notes
+(a duplicated `SOURCE` constant, an unwrapped third-party exception on
+consent denial) were fixed before merge.
+
+Left out, as scoped: `go2 sync` (T-012) and the folder/file picker
+(T-013). The connector now sits authorized with nothing yet pulling
+documents through it -- that is exactly what T-012 is for, and it is
+now unblocked.
