@@ -9,20 +9,40 @@ whether Google's servers behave as documented.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
 
 from go2.connectors.google_auth import (
     SCOPES,
+    AuthorizationFailedError,
+    ClientSecretsNotFoundError,
     RevokedCredentialError,
     account_email,
     credentials_from_token,
     credentials_to_token,
     ensure_fresh,
+    run_installed_app_flow,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+# A realistic-shaped desktop-app client secret, no real client ever issued.
+FAKE_CLIENT_SECRETS = {
+    "installed": {
+        "client_id": "a-client-id.apps.googleusercontent.com",
+        "client_secret": "a-client-secret",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": ["http://localhost"],
+    }
+}
 
 
 class _FakeCredentials:
@@ -109,6 +129,26 @@ def test_account_email_reads_the_authorized_drive_users_address() -> None:
     service = _DriveService("me@example.com")
     assert account_email(service) == "me@example.com"
     assert service._about.get.kwargs == {"fields": "user"}  # noqa: SLF001 -- inspecting our own fake.
+
+
+def test_a_missing_client_secrets_file_names_how_to_get_one(tmp_path: Path) -> None:
+    with pytest.raises(ClientSecretsNotFoundError, match=r"console\.cloud\.google\.com"):
+        run_installed_app_flow(tmp_path / "google_client_secret.json")
+
+
+def test_a_denied_consent_is_wrapped_not_a_raw_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secrets_path = tmp_path / "google_client_secret.json"
+    secrets_path.write_text(json.dumps(FAKE_CLIENT_SECRETS))
+
+    def _deny_consent(*_args: Any, **_kwargs: Any) -> None:
+        raise AccessDeniedError
+
+    monkeypatch.setattr(InstalledAppFlow, "run_local_server", _deny_consent)
+
+    with pytest.raises(AuthorizationFailedError, match="go2 connect google"):
+        run_installed_app_flow(secrets_path)
 
 
 def test_a_credential_round_trips_through_its_stored_token() -> None:

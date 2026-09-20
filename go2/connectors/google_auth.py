@@ -31,15 +31,18 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import InstalledAppFlow, WSGITimeoutError
 from googleapiclient.discovery import build
+from oauthlib.oauth2.rfc6749.errors import OAuth2Error
+
+from go2.connectors.gdrive import SOURCE
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SOURCE = "gdrive"
+__all__ = ["SOURCE"]  # re-exported so callers need one import, not two.
 
 # Deliberately one scope. test_the_requested_scope_is_drive_file guards
 # against silently widening it back to something that needs a CASA audit.
@@ -57,6 +60,17 @@ class ClientSecretsNotFoundError(FileNotFoundError):
             "download it, and save it at that path -- or point GO2_GOOGLE_CLIENT_SECRETS "
             "elsewhere."
         )
+
+
+class AuthorizationFailedError(RuntimeError):
+    """The installed-app flow did not produce credentials.
+
+    Covers what oauthlib and the local callback server raise for real: consent
+    denied, the OAuth exchange rejected, or the loopback callback timing out
+    waiting for the browser. Wrapped so the CLI prints one clean line instead
+    of a third-party traceback -- the fix is the same in every case, try
+    again.
+    """
 
 
 class RevokedCredentialError(RuntimeError):
@@ -113,13 +127,19 @@ def run_installed_app_flow(client_secrets: Path) -> Credentials:
 
     Raises:
         ClientSecretsNotFoundError: nothing at `client_secrets`.
+        AuthorizationFailedError: consent was denied, the exchange was
+            rejected, or the local callback timed out.
     """
     if not client_secrets.exists():
         raise ClientSecretsNotFoundError(client_secrets)
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets), scopes=SCOPES)
-    # The installed-app flow always yields user credentials, never the
-    # workload-identity-federation kind the library's return type also allows.
-    return cast("Credentials", flow.run_local_server(port=0))
+    try:
+        # The installed-app flow always yields user credentials, never the
+        # workload-identity-federation kind the library's return type also allows.
+        return cast("Credentials", flow.run_local_server(port=0))
+    except (OAuth2Error, WSGITimeoutError) as exc:
+        msg = f"Google authorization did not complete: {exc}. Run `go2 connect google` again."
+        raise AuthorizationFailedError(msg) from exc
 
 
 def build_drive_service(credentials: Credentials) -> Any:  # noqa: ANN401 -- discovery has no static type.

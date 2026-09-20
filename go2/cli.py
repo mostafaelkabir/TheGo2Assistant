@@ -17,6 +17,7 @@ from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
 from go2.connectors.google_auth import SOURCE as GDRIVE_SOURCE
 from go2.connectors.google_auth import (
+    AuthorizationFailedError,
     ClientSecretsNotFoundError,
     account_email,
     build_drive_service,
@@ -593,7 +594,7 @@ def connect_google() -> None:
     tenant_id = resolve_tenant_id()
     try:
         credentials = run_installed_app_flow(get_settings().google_client_secrets)
-    except ClientSecretsNotFoundError as exc:
+    except (ClientSecretsNotFoundError, AuthorizationFailedError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     service = build_drive_service(credentials)
