@@ -166,3 +166,42 @@ class TestTokenAtRest:
         other = str(uuid.uuid4())  # a different tenant cannot read the credential
         with connect() as conn, pytest.raises(KeyError):
             repo.load_token(conn, tenant_id=other, connection_id=connection_id)
+
+    def test_credentials_are_stored_encrypted(self, tenant: str) -> None:
+        with connect() as conn:
+            connection_id = repo.upsert_connection_token(
+                conn, tenant_id=tenant, source="gdrive", account="me@example.com", token=TOKEN
+            )
+            raw = conn.execute(
+                text("SELECT token_blob FROM connections WHERE id = :i AND tenant_id = :t"),
+                {"i": connection_id, "t": tenant},
+            ).scalar_one()
+        assert TOKEN.encode() not in bytes(raw)
+        with connect() as conn:
+            loaded = repo.load_token(conn, tenant_id=tenant, connection_id=connection_id)
+        assert loaded == TOKEN
+
+    def test_connecting_twice_updates_rather_than_duplicates(self, tenant: str) -> None:
+        refreshed_token = TOKEN.replace("0", "1")
+        with connect() as conn:
+            first = repo.upsert_connection_token(
+                conn, tenant_id=tenant, source="gdrive", account="me@example.com", token=TOKEN
+            )
+            again = repo.upsert_connection_token(
+                conn,
+                tenant_id=tenant,
+                source="gdrive",
+                account="me@example.com",
+                token=refreshed_token,
+            )
+            count = conn.execute(
+                text(
+                    "SELECT count(*) FROM connections "
+                    "WHERE tenant_id = :t AND source = 'gdrive' AND account = 'me@example.com'"
+                ),
+                {"t": tenant},
+            ).scalar_one()
+            loaded = repo.load_token(conn, tenant_id=tenant, connection_id=again)
+        assert again == first  # same row, not a second one
+        assert count == 1
+        assert loaded == refreshed_token  # the newer credential replaced the old

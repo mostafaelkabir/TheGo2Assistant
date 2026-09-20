@@ -1,16 +1,16 @@
 ---
 id: T-011
 title: "go2 connect google: the authorisation flow"
-status: ready
+status: in-review
 phase: 1-drive
 priority: P1
 blocked_by: [T-010]
 github_issue: 11
-owner:
-branch:
-pr:
+owner: Claude (Sonnet 5)
+branch: drive/google-oauth-connect
+pr: https://github.com/mostafaelkabir/TheGo2Assistant/pull/32
 created: 2026-09-03
-updated: 2026-09-18
+updated: 2026-09-20
 closed:
 ---
 
@@ -55,5 +55,30 @@ plaintext in the database, even briefly.
 - 2026-09-16 — Mirrored into the local backlog.
 
 - 2026-09-18 — T-010 closed; unblocked, set ready.
+
+- 2026-09-20 — Claimed by Claude (Sonnet 5) on `drive/google-oauth-connect`,
+  picked as the top of the roadmap's unclaimed "Now" chain (T-010 → T-012).
+
+- 2026-09-20 — Implemented: `go2/connectors/google_auth.py` (installed-app
+  flow, `SCOPES` pinned to `drive.file`, `ensure_fresh` for silent refresh,
+  `RevokedCredentialError` naming the fix, `account_email` via `about.get`
+  since `drive.file` carries no identity scope); `repo.upsert_connection_token`
+  for create-or-reauthorize (distinct from `ensure_connection`, which must
+  never clobber a stored token on the upload path); `go2 connect google` CLI
+  command; `tenant list` now shows each workspace's non-upload connections.
+  All 6 named test cases pass; full suite 455 passed (444 + 11 new), local
+  providers, `HF_HUB_OFFLINE=1`. Toolchain clean. Corrected a stale
+  `.env.example` comment that still said the consent screen needed
+  Internal/Testing for `drive.readonly` -- the ticket's own decision is
+  `drive.file`, which does not.
+
+- 2026-09-20 — Pre-PR gate: toolchain clean, full suite 457 passed nothing
+  skipped, both retrieval evals matched their baselines exactly (local
+  16/17 MRR 0.94, dawan 19/20 MRR 0.97 -- repository.py's new function is
+  additive). Independent review found no blockers and two notes, both
+  fixed: deduplicated the `SOURCE` constant against `gdrive.py`, and
+  wrapped the flow's real failure modes (consent denied, exchange
+  rejected, loopback timeout) in `AuthorizationFailedError` instead of
+  letting a raw traceback reach the terminal. Opened PR #32; in-review.
 
 ## Outcome

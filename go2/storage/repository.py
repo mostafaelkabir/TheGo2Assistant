@@ -311,6 +311,36 @@ def ensure_connection(
     return str(row)
 
 
+def upsert_connection_token(
+    conn: Connection, *, tenant_id: str, source: str, account: str, token: str
+) -> str:
+    """Create a connection or replace its stored credential.
+
+    Unlike ``ensure_connection``, this overwrites ``token_blob`` on conflict.
+    It is the OAuth flow's operation (T-011): connecting the same account
+    twice, or reauthorizing after a revoked refresh token, must both replace
+    the stored credential rather than silently keeping the old one -- the
+    opposite requirement from the token-less upload path ``ensure_connection``
+    exists to protect.
+    """
+    row = conn.execute(
+        text("""
+            INSERT INTO connections (tenant_id, source, account, token_blob)
+            VALUES (:tenant_id, :source, :account, :token_blob)
+            ON CONFLICT (tenant_id, source, account)
+            DO UPDATE SET token_blob = EXCLUDED.token_blob
+            RETURNING id
+        """),
+        {
+            "tenant_id": tenant_id,
+            "source": source,
+            "account": account,
+            "token_blob": encrypt_token(token),
+        },
+    ).scalar_one()
+    return str(row)
+
+
 def load_token(conn: Connection, *, tenant_id: str, connection_id: str) -> str:
     """Return the plaintext OAuth credential for a connection.
 

@@ -35,6 +35,8 @@ class Tenant:
     slug: str
     documents: int = 0
     chunks: int = 0
+    # "source:account" for each non-upload connection, e.g. "gdrive:me@example.com".
+    connections: tuple[str, ...] = ()
 
 
 class UnknownTenantError(RuntimeError):
@@ -121,12 +123,24 @@ def list_tenants() -> list[Tenant]:
             text("""
                 SELECT t.id, t.slug,
                        (SELECT count(*) FROM documents d WHERE d.tenant_id = t.id) AS docs,
-                       (SELECT count(*) FROM chunks c WHERE c.tenant_id = t.id) AS chunks
+                       (SELECT count(*) FROM chunks c WHERE c.tenant_id = t.id) AS chunks,
+                       (SELECT array_agg(
+                                   c2.source || ':' || c2.account ORDER BY c2.source, c2.account
+                               )
+                          FROM connections c2
+                         WHERE c2.tenant_id = t.id AND c2.source != 'upload') AS connections
                   FROM tenants t ORDER BY t.slug
             """)
         ).all()
     return [
-        Tenant(id=str(r.id), slug=r.slug, documents=int(r.docs), chunks=int(r.chunks)) for r in rows
+        Tenant(
+            id=str(r.id),
+            slug=r.slug,
+            documents=int(r.docs),
+            chunks=int(r.chunks),
+            connections=tuple(r.connections or ()),
+        )
+        for r in rows
     ]
 
 

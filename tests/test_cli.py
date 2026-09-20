@@ -7,9 +7,11 @@ database are exercised through Typer's runner and marked slow.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import text
 from typer.testing import CliRunner
 
@@ -18,7 +20,7 @@ from go2.config import Settings, get_settings
 from go2.jobs.worker import INGEST_FILE, run_worker
 from go2.storage import repository as repo
 from go2.storage.db import connect
-from go2.tenancy import resolve_tenant_id
+from go2.tenancy import create_tenant, delete_tenant, resolve_tenant_id
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -397,3 +399,81 @@ class TestServeValidatesTenant:
         finally:
             get_settings.cache_clear()
         assert "go2 tenant create" in result.output
+
+
+@pytest.mark.slow
+class TestConnectGoogle:
+    """`go2 connect google`, with the real browser flow stubbed out.
+
+    The installed-app flow itself opens a browser and talks to Google, which
+    a unit test cannot do; `go2/connectors/google_auth.py` has its own tests
+    for the scope, refresh and revocation logic against fakes. What this
+    command adds on top -- storing the result against the *resolved* tenant --
+    is what these tests cover.
+    """
+
+    @pytest.fixture
+    def tenant(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+        monkeypatch.setenv("GO2_FERNET_KEY", Fernet.generate_key().decode())
+        slug = f"t-{uuid.uuid4().hex[:10]}"
+        monkeypatch.setenv("GO2_TENANT", slug)
+        get_settings.cache_clear()
+        create_tenant(slug)
+        try:
+            yield slug
+        finally:
+            delete_tenant(slug)
+            get_settings.cache_clear()
+
+    @staticmethod
+    def _stub_flow(monkeypatch: pytest.MonkeyPatch, *, email: str, token: str) -> None:
+        monkeypatch.setattr("go2.cli.run_installed_app_flow", lambda _path: object())
+        monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
+        monkeypatch.setattr("go2.cli.account_email", lambda _service: email)
+        monkeypatch.setattr("go2.cli.credentials_to_token", lambda _creds: token)
+
+    def test_connect_is_tenant_scoped(self, tenant: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_flow(monkeypatch, email="me@example.com", token="a-refresh-token")
+
+        result = runner.invoke(app, ["connect", "google"])
+
+        assert result.exit_code == 0, result.output
+        assert "me@example.com" in result.output
+        with connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT tenant_id FROM connections
+                     WHERE source = 'gdrive' AND account = 'me@example.com'
+                """)
+            ).scalar_one()
+        assert str(row) == resolve_tenant_id(tenant)
+
+    def test_connecting_again_reauthorizes_the_same_connection(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_flow(monkeypatch, email="me@example.com", token="first-token")
+        runner.invoke(app, ["connect", "google"])
+
+        self._stub_flow(monkeypatch, email="me@example.com", token="second-token")
+        result = runner.invoke(app, ["connect", "google"])
+
+        assert result.exit_code == 0, result.output
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            count = conn.execute(
+                text("""
+                    SELECT count(*) FROM connections
+                     WHERE tenant_id = :t AND source = 'gdrive' AND account = 'me@example.com'
+                """),
+                {"t": tenant_id},
+            ).scalar_one()
+            connection_id = conn.execute(
+                text("""
+                    SELECT id FROM connections
+                     WHERE tenant_id = :t AND source = 'gdrive' AND account = 'me@example.com'
+                """),
+                {"t": tenant_id},
+            ).scalar_one()
+            token = repo.load_token(conn, tenant_id=tenant_id, connection_id=str(connection_id))
+        assert count == 1
+        assert token == "second-token"

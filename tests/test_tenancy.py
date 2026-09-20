@@ -200,3 +200,20 @@ class TestResolution:
         if not _database_available():  # pragma: no cover - environment dependent
             pytest.skip("no database reachable")
         assert any(t.slug for t in list_tenants())
+
+    def test_listing_shows_a_connection_but_not_the_upload_source(self) -> None:
+        if not _database_available():  # pragma: no cover - environment dependent
+            pytest.skip("no database reachable")
+        slug = f"t-{uuid.uuid4().hex[:10]}"
+        create_tenant(slug)
+        tenant_id = resolve_tenant_id(slug)
+        try:
+            with connect() as conn:
+                repo.ensure_connection(conn, tenant_id=tenant_id, source="upload", account="local")
+                repo.upsert_connection_token(
+                    conn, tenant_id=tenant_id, source="gdrive", account="me@example.com", token=""
+                )
+            found = next(t for t in list_tenants() if t.slug == slug)
+            assert found.connections == ("gdrive:me@example.com",)
+        finally:
+            delete_tenant(slug)
