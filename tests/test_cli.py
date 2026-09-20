@@ -487,6 +487,22 @@ class _FakeCredentials:
     expired = False
 
 
+class _FakeRefreshableCredentials:
+    """Starts expired; `refresh` flips it, the way a real token exchange does."""
+
+    def __init__(self) -> None:
+        self.expired = True
+        self.refresh_calls = 0
+
+    def refresh(self, request: object) -> None:
+        assert request is not None
+        self.refresh_calls += 1
+        self.expired = False
+
+    def to_json(self) -> str:
+        return '{"token": "a-refreshed-token"}'
+
+
 class _FakeSyncConnector:
     """Stands in for GoogleDriveConnector, so `sync` tests never touch Drive."""
 
@@ -655,3 +671,57 @@ class TestSyncCommand:
 
         assert result.exit_code == 1
         assert "go2 connect google" in result.output
+
+    def test_an_expired_credential_is_refreshed_and_repersisted(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_creds = _FakeRefreshableCredentials()
+        monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: fake_creds)
+        monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
+        monkeypatch.setattr("go2.cli.GoogleDriveConnector", lambda _service: _FakeSyncConnector([]))
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert fake_creds.refresh_calls == 1  # refreshed, never re-prompted
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            connection_id = conn.execute(
+                text("SELECT id FROM connections WHERE tenant_id = :t AND source = 'gdrive'"),
+                {"t": tenant_id},
+            ).scalar_one()
+            token = repo.load_token(conn, tenant_id=tenant_id, connection_id=str(connection_id))
+        assert token == '{"token": "a-refreshed-token"}'  # the new token replaced the old
+
+    def test_multiple_accounts_require_choosing_one(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            repo.upsert_connection_token(
+                conn,
+                tenant_id=tenant_id,
+                source="gdrive",
+                account="other@example.com",
+                token="another-token",
+            )
+        self._stub_connector(monkeypatch, [])
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 1
+        assert "--account" in result.output
+        assert "me@example.com" in result.output
+        assert "other@example.com" in result.output
+
+    @pytest.mark.usefixtures("tenant")
+    def test_an_unknown_account_names_what_is_connected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_connector(monkeypatch, [])
+
+        result = runner.invoke(app, ["sync", "--account", "nope@example.com"])
+
+        assert result.exit_code == 1
+        assert "nope@example.com" in result.output
+        assert "me@example.com" in result.output
