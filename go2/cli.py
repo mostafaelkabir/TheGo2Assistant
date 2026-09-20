@@ -15,6 +15,14 @@ from sqlalchemy import text
 from go2 import backlog as backlog_store
 from go2.config import get_settings
 from go2.connectors.base import FetchedContent, RemoteFile
+from go2.connectors.google_auth import SOURCE as GDRIVE_SOURCE
+from go2.connectors.google_auth import (
+    ClientSecretsNotFoundError,
+    account_email,
+    build_drive_service,
+    credentials_to_token,
+    run_installed_app_flow,
+)
 from go2.evaluation import (
     EvalFileError,
     Suite,
@@ -567,6 +575,42 @@ def _facts(payload: dict[str, Any]) -> str:
 tenant_app = typer.Typer(help="Isolated workspaces. Each holds its own documents and index.")
 app.add_typer(tenant_app, name="tenant")
 
+connect_app = typer.Typer(help="Authorize a document source for the active workspace.")
+app.add_typer(connect_app, name="connect")
+
+
+@connect_app.command("google")
+def connect_google() -> None:
+    """Authorize this workspace's Google Drive account.
+
+    Opens a browser for Google's consent screen, scoped to `drive.file` --
+    only files and folders you pick are ever visible to go2 (see
+    `docs/roadmap.md` for why the scope is not the broader `drive.readonly`).
+    The refresh token is stored encrypted. Connecting the same account again
+    reauthorizes it in place rather than creating a second connection, which
+    is also how to recover from a revoked or expired refresh token.
+    """
+    tenant_id = resolve_tenant_id()
+    try:
+        credentials = run_installed_app_flow(get_settings().google_client_secrets)
+    except ClientSecretsNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    service = build_drive_service(credentials)
+    account = account_email(service)
+    with connect() as conn:
+        connection_id = repo.upsert_connection_token(
+            conn,
+            tenant_id=tenant_id,
+            source=GDRIVE_SOURCE,
+            account=account,
+            token=credentials_to_token(credentials),
+        )
+    typer.echo(
+        f"connected {account} to workspace {get_settings().tenant} (connection {connection_id})"
+    )
+
+
 backlog_app = typer.Typer(
     help="The file-based ticket store under backlog/. Run with no subcommand to list ready work.",
     invoke_without_command=True,
@@ -815,6 +859,8 @@ def tenant_list() -> None:
         typer.echo(
             f"{marker} {tenant.slug:<20} {tenant.documents:>5} documents {tenant.chunks:>7} chunks"
         )
+        if tenant.connections:
+            typer.echo(f"    connected: {', '.join(tenant.connections)}")
     typer.echo(f"\n* = active (GO2_TENANT={active})")
 
 

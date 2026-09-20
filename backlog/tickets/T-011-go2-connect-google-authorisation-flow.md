@@ -59,4 +59,17 @@ plaintext in the database, even briefly.
 - 2026-09-20 — Claimed by Claude (Sonnet 5) on `drive/google-oauth-connect`,
   picked as the top of the roadmap's unclaimed "Now" chain (T-010 → T-012).
 
+- 2026-09-20 — Implemented: `go2/connectors/google_auth.py` (installed-app
+  flow, `SCOPES` pinned to `drive.file`, `ensure_fresh` for silent refresh,
+  `RevokedCredentialError` naming the fix, `account_email` via `about.get`
+  since `drive.file` carries no identity scope); `repo.upsert_connection_token`
+  for create-or-reauthorize (distinct from `ensure_connection`, which must
+  never clobber a stored token on the upload path); `go2 connect google` CLI
+  command; `tenant list` now shows each workspace's non-upload connections.
+  All 6 named test cases pass; full suite 455 passed (444 + 11 new), local
+  providers, `HF_HUB_OFFLINE=1`. Toolchain clean. Corrected a stale
+  `.env.example` comment that still said the consent screen needed
+  Internal/Testing for `drive.readonly` -- the ticket's own decision is
+  `drive.file`, which does not.
+
 ## Outcome
