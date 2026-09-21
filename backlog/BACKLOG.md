@@ -24,7 +24,6 @@ How to work from this file: [README.md](README.md).
 | [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-048](tickets/T-048-local-embedding-rerank-providers-miss-the-evidence-floor-and.md) | Local embedding/rerank providers miss the evidence floor and peg the CPU inside the stack container | 2-gate | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
-| [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | in-review | T-011 | Claude (Sonnet 5) · `drive/sync-cli` | [33](https://github.com/mostafaelkabir/TheGo2Assistant/pull/33) | [#12](../../../issues/12) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
 | [T-035](tickets/T-035-verify-the-first-live-google-drive-user-journey.md) | Verify the first live Google Drive user journey | 1-drive | P1 | backlog | T-012 | — | — | — |
 | [T-036](tickets/T-036-test-client-boundaries-through-real-mcp-tools.md) | Test client boundaries through real MCP tools | 2-gate | P1 | backlog | T-019 | — | — | — |
@@ -46,6 +45,7 @@ How to work from this file: [README.md](README.md).
 
 | Id | Title | Phase | Pri | Status | Blocked by | Holder | PR | Issue |
 |---|---|---|---|---|---|---|---|---|
+| [T-012](tickets/T-012-go2-sync-drive-the-connector-from-the-cli.md) | go2 sync: drive the connector from the CLI | 1-drive | P1 | done | T-011 | Claude (Sonnet 5) · `drive/sync-cli` | [33](https://github.com/mostafaelkabir/TheGo2Assistant/pull/33) | [#12](../../../issues/12) |
 | [T-011](tickets/T-011-go2-connect-google-authorisation-flow.md) | go2 connect google: the authorisation flow | 1-drive | P1 | done | T-010 | Claude (Sonnet 5) · `drive/google-oauth-connect` | [32](https://github.com/mostafaelkabir/TheGo2Assistant/pull/32) | [#11](../../../issues/11) |
 | [T-047](tickets/T-047-one-command-local-stack-go2-postgres-and-librechat-in-docker.md) | One-command local stack: go2, Postgres and LibreChat in Docker Compose | 2-gate | P1 | done | — | Claude (Fable 5.1) · `deploy/local-stack` | [31](https://github.com/mostafaelkabir/TheGo2Assistant/pull/31) | — |
 | [T-046](tickets/T-046-close-in-review-tickets-whose-pr-has-merged.md) | Close in-review tickets whose PR has merged | 0-process | P3 | done | — | Claude (Opus 4.8) · `process/backlog-pr-close` | [29](https://github.com/mostafaelkabir/TheGo2Assistant/pull/29) | — |
