@@ -7,10 +7,13 @@ import logging
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from sqlalchemy import text
+
+if TYPE_CHECKING:
+    from google.oauth2.credentials import Credentials
 
 from go2 import backlog as backlog_store
 from go2.config import get_settings
@@ -220,44 +223,13 @@ def _choose_connection(
     return connections[0]
 
 
-@app.command()
-def sync(
-    *,
-    source: str = typer.Option(default=GDRIVE_SOURCE, help="Connector to sync from."),
-    limit: Annotated[int | None, typer.Option(help="Stop after fetching this many files.")] = None,
-    account: str = typer.Option(
-        default="", help="Which connected account, if more than one is connected."
-    ),
-) -> None:
-    """Pull files from a connected source into the index.
+def _load_and_refresh_credentials(tenant_id: str, chosen: repo.ConnectionSummary) -> Credentials:
+    """Load a connection's stored credential and refresh it if expired.
 
-    Only `gdrive` exists today; run `go2 connect google` first. Each run
-    lists everything the account's `drive.file` grant currently covers --
-    there is no persisted cursor yet (T-014), so a repeat run re-lists the
-    whole account, but already-ingested files still skip re-embedding on
-    their content hash, the same short-circuit `go2 ingest` uses. Until
-    T-013's picker lands, that grant is only files the account explicitly
-    opened with this app or shared with it, so a fresh connection with
-    nothing shared yet will legitimately list zero files.
+    The plumbing `sync` and `picker` both need before calling the Drive API
+    on the tenant's behalf. Exits the command (code 1) with an actionable
+    message on any failure.
     """
-    # googleapiclient logs an informational line about a missing optional
-    # dependency on every discovery build; it drowns the per-file report
-    # this command exists to print, same reason backlog_sync quiets httpx.
-    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
-
-    if source != GDRIVE_SOURCE:
-        typer.echo(
-            f"unsupported source {source!r}; only {GDRIVE_SOURCE!r} exists so far.", err=True
-        )
-        raise typer.Exit(code=1)
-
-    tenant_id = resolve_tenant_id()
-    with connect() as conn:
-        connections = repo.find_connections(conn, tenant_id=tenant_id, source=GDRIVE_SOURCE)
-    chosen = _choose_connection(connections, account)
-    if chosen is None:
-        raise typer.Exit(code=1)
-
     try:
         with connect() as conn:
             token = repo.load_token(conn, tenant_id=tenant_id, connection_id=chosen.id)
@@ -281,18 +253,94 @@ def sync(
                 account=chosen.account,
                 token=credentials_to_token(credentials),
             )
+    return credentials
 
+
+def _expand_selections(
+    connector: GoogleDriveConnector, selections: list[repo.Selection]
+) -> list[RemoteFile]:
+    """Every file a set of picked files and folders currently resolves to.
+
+    A picked folder is walked fresh here rather than trusting a snapshot from
+    pick time, which is what lets a file added to it later show up on the
+    next sync without picking again.
+    """
+    selected_files = {s.external_id for s in selections if s.kind == "file"}
+    selected_folders = {s.external_id for s in selections if s.kind == "folder"}
+
+    files: list[RemoteFile] = []
+    if selected_files:
+        changes = connector.list_changes(None)
+        # A full listing (cursor=None) never actually contains a deletion --
+        # Drive's file-list endpoint excludes trashed files outright -- but
+        # the connector's contract allows one in general, so this stays
+        # defensive rather than assuming it. Filtering changes.files in place
+        # (rather than looking selected ids up in a dict) keeps whatever
+        # order the connector returned them in, instead of the arbitrary
+        # order of iterating a set.
+        files = [f for f in changes.files if not f.deleted and f.external_id in selected_files]
+
+    seen = {f.external_id for f in files}
+    for folder_id in selected_folders:
+        for remote in connector.list_folder_children(folder_id):
+            if remote.external_id not in seen:
+                files.append(remote)
+                seen.add(remote.external_id)
+    return files
+
+
+@app.command()
+def sync(
+    *,
+    source: str = typer.Option(default=GDRIVE_SOURCE, help="Connector to sync from."),
+    limit: Annotated[int | None, typer.Option(help="Stop after fetching this many files.")] = None,
+    account: str = typer.Option(
+        default="", help="Which connected account, if more than one is connected."
+    ),
+) -> None:
+    """Pull picked files from a connected source into the index.
+
+    Only `gdrive` exists today; run `go2 connect google` then `go2 picker`
+    first -- `drive.file` grants nothing until it is picked. A picked
+    folder's contents are re-checked on every run rather than frozen at
+    pick time, so a file added to it later is synced without picking again.
+    There is no persisted cursor yet (T-014), so a repeat run re-lists the
+    whole account, but already-ingested files still skip re-embedding on
+    their content hash, the same short-circuit `go2 ingest` uses.
+    """
+    # googleapiclient logs an informational line about a missing optional
+    # dependency on every discovery build; it drowns the per-file report
+    # this command exists to print, same reason backlog_sync quiets httpx.
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
+
+    if source != GDRIVE_SOURCE:
+        typer.echo(
+            f"unsupported source {source!r}; only {GDRIVE_SOURCE!r} exists so far.", err=True
+        )
+        raise typer.Exit(code=1)
+
+    tenant_id = resolve_tenant_id()
+    with connect() as conn:
+        connections = repo.find_connections(conn, tenant_id=tenant_id, source=GDRIVE_SOURCE)
+    chosen = _choose_connection(connections, account)
+    if chosen is None:
+        raise typer.Exit(code=1)
+
+    with connect() as conn:
+        selections = repo.list_selections(conn, connection_id=chosen.id, active_only=True)
+    if not selections:
+        typer.echo(f"nothing picked for {chosen.account}. Run `go2 picker` first.")
+        return
+
+    credentials = _load_and_refresh_credentials(tenant_id, chosen)
     connector = GoogleDriveConnector(build_drive_service(credentials))
-    changes = connector.list_changes(None)
-    # A full listing (cursor=None) never actually contains a deletion -- Drive's
-    # file-list endpoint excludes trashed files outright -- but the connector's
-    # contract allows one in general, so this is defensive, not dead code.
-    files = [f for f in changes.files if not f.deleted]
+
+    files = _expand_selections(connector, selections)
     if limit is not None:
         files = files[:limit]
 
     if not files:
-        typer.echo(f"nothing to sync for {chosen.account}")
+        typer.echo(f"nothing to sync for {chosen.account} (nothing picked has an ingestable file)")
         return
 
     scope = Scope(tenant_id=tenant_id, connection_id=chosen.id, source=GDRIVE_SOURCE)
@@ -319,6 +367,130 @@ def sync(
 
     summary = ", ".join(f"{count} {name}" for name, count in sorted(tally.items()) if count)
     typer.echo(f"\n{summary} in {time.monotonic() - started:.0f}s")
+
+
+picker_app = typer.Typer(
+    help="Choose which Drive files or folders go2 may see.", invoke_without_command=True
+)
+app.add_typer(picker_app, name="picker")
+
+
+@picker_app.callback()
+def picker_pick(
+    ctx: typer.Context,
+    *,
+    account: str = typer.Option(
+        default="", help="Which connected account, if more than one is connected."
+    ),
+    port: int = typer.Option(default=8787, help="Local port for the picker page."),
+) -> None:
+    """Open a browser to pick Drive files or folders go2 may sync.
+
+    `drive.file` shows nothing until it is picked here -- run `go2 connect
+    google` first. Picking a folder includes everything inside it, both now
+    and later: `go2 sync` re-checks the folder's contents each time rather
+    than freezing them at pick time. Loopback only; there is no `--host`,
+    since a one-person file picker has no reason to be reachable beyond
+    this machine.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    developer_key = get_settings().google_picker_api_key.get_secret_value()
+    if not developer_key:
+        typer.echo(
+            "GO2_GOOGLE_PICKER_API_KEY is not set. Create an API key restricted to the "
+            "Picker API at https://console.cloud.google.com/apis/credentials (same "
+            "project as the OAuth client used for `go2 connect google`), and set it.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    tenant_id = resolve_tenant_id()
+    with connect() as conn:
+        connections = repo.find_connections(conn, tenant_id=tenant_id, source=GDRIVE_SOURCE)
+    chosen = _choose_connection(connections, account)
+    if chosen is None:
+        raise typer.Exit(code=1)
+
+    credentials = _load_and_refresh_credentials(tenant_id, chosen)
+    if credentials.token is None:
+        # Should not happen right after a successful refresh; fail loudly
+        # rather than pass None through to something that expects a string.
+        typer.echo("no access token after refresh; try `go2 connect google` again.", err=True)
+        raise typer.Exit(code=1)
+
+    from go2.picker_server import run_picker  # noqa: PLC0415 -- keep uvicorn deferred.
+
+    typer.echo(
+        f"opening the picker for {chosen.account} -- pick a file or folder, then return here."
+    )
+    picked = run_picker(port=port, access_token=credentials.token, developer_key=developer_key)
+    if not picked:
+        typer.echo("nothing picked.")
+        return
+
+    with connect() as conn:
+        repo.add_selections(conn, tenant_id=tenant_id, connection_id=chosen.id, items=picked)
+    for external_id, kind, title in picked:
+        typer.echo(f"  picked {kind:6} {title or external_id}")
+    typer.echo(f"\n{len(picked)} picked. Run `go2 sync` to index them.")
+
+
+@picker_app.command("list")
+def picker_list(
+    *,
+    account: str = typer.Option(
+        default="", help="Which connected account, if more than one is connected."
+    ),
+) -> None:
+    """Show what has been picked for this workspace's Drive connection."""
+    tenant_id = resolve_tenant_id()
+    with connect() as conn:
+        connections = repo.find_connections(conn, tenant_id=tenant_id, source=GDRIVE_SOURCE)
+    chosen = _choose_connection(connections, account)
+    if chosen is None:
+        raise typer.Exit(code=1)
+
+    with connect() as conn:
+        selections = repo.list_selections(conn, connection_id=chosen.id)
+    if not selections:
+        typer.echo(f"nothing picked for {chosen.account}. Run `go2 picker` first.")
+        return
+    for s in selections:
+        marker = " " if s.active else "x"
+        typer.echo(f"[{marker}] {s.kind:6} {s.title or s.external_id}  ({s.external_id})")
+    typer.echo("\n[x] removed -- stopped from future syncs, already-indexed content untouched")
+
+
+@picker_app.command("remove")
+def picker_remove(
+    external_id: Annotated[str, typer.Argument(help="The Drive id shown by `go2 picker list`.")],
+    *,
+    account: str = typer.Option(
+        default="", help="Which connected account, if more than one is connected."
+    ),
+) -> None:
+    """Stop syncing one picked file or folder.
+
+    Already-indexed documents from it are left alone -- this only changes
+    what future `go2 sync` runs will fetch.
+    """
+    tenant_id = resolve_tenant_id()
+    with connect() as conn:
+        connections = repo.find_connections(conn, tenant_id=tenant_id, source=GDRIVE_SOURCE)
+    chosen = _choose_connection(connections, account)
+    if chosen is None:
+        raise typer.Exit(code=1)
+
+    with connect() as conn:
+        removed = repo.remove_selection(
+            conn, tenant_id=tenant_id, connection_id=chosen.id, external_id=external_id
+        )
+    if not removed:
+        typer.echo(f"no active selection {external_id!r} for {chosen.account}.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo("removed -- already-indexed documents are untouched, future syncs will skip it.")
 
 
 @app.command()

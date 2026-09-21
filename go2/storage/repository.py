@@ -366,6 +366,99 @@ def find_connections(conn: Connection, *, tenant_id: str, source: str) -> list[C
     return [ConnectionSummary(id=str(r.id), account=r.account) for r in rows]
 
 
+@dataclass(frozen=True, slots=True)
+class Selection:
+    """One file or folder picked through `go2 picker` (T-013)."""
+
+    id: str
+    external_id: str
+    kind: Literal["file", "folder"]
+    title: str
+    active: bool
+
+
+def add_selections(
+    conn: Connection,
+    *,
+    tenant_id: str,
+    connection_id: str,
+    items: Sequence[tuple[str, str, str]],
+) -> int:
+    """Persist picked items: ``(external_id, kind, title)`` tuples.
+
+    Picking an item that was previously removed revives it -- the same
+    upsert-on-conflict shape as re-picking is meant to have, not a second row.
+
+    Returns:
+        How many items were written.
+    """
+    for external_id, kind, title in items:
+        conn.execute(
+            text("""
+                INSERT INTO drive_selections
+                    (tenant_id, connection_id, external_id, kind, title)
+                VALUES (:tenant_id, :connection_id, :external_id, :kind, :title)
+                ON CONFLICT (connection_id, external_id) DO UPDATE SET
+                    kind = EXCLUDED.kind, title = EXCLUDED.title, removed_at = NULL
+            """),
+            {
+                "tenant_id": tenant_id,
+                "connection_id": connection_id,
+                "external_id": external_id,
+                "kind": kind,
+                "title": title,
+            },
+        )
+    return len(items)
+
+
+def list_selections(
+    conn: Connection, *, connection_id: str, active_only: bool = False
+) -> list[Selection]:
+    """Picked items for a connection, most recent first."""
+    where = "connection_id = :connection_id"
+    if active_only:
+        where += " AND removed_at IS NULL"
+    rows = conn.execute(
+        text(f"""
+            SELECT id, external_id, kind, title, removed_at FROM drive_selections
+             WHERE {where}
+             ORDER BY created_at DESC
+        """),  # noqa: S608 -- `where` is one of two fixed strings, never interpolated input.
+        {"connection_id": connection_id},
+    ).all()
+    return [
+        Selection(
+            id=str(r.id),
+            external_id=r.external_id,
+            kind=r.kind,
+            title=r.title,
+            active=r.removed_at is None,
+        )
+        for r in rows
+    ]
+
+
+def remove_selection(
+    conn: Connection, *, tenant_id: str, connection_id: str, external_id: str
+) -> bool:
+    """Soft-remove one selection: stops future syncs, leaves indexed documents alone.
+
+    Returns:
+        Whether an active selection matched and was removed.
+    """
+    row = conn.execute(
+        text("""
+            UPDATE drive_selections SET removed_at = now()
+             WHERE tenant_id = :tenant_id AND connection_id = :connection_id
+               AND external_id = :external_id AND removed_at IS NULL
+            RETURNING id
+        """),
+        {"tenant_id": tenant_id, "connection_id": connection_id, "external_id": external_id},
+    ).scalar_one_or_none()
+    return row is not None
+
+
 def load_token(conn: Connection, *, tenant_id: str, connection_id: str) -> str:
     """Return the plaintext OAuth credential for a connection.
 

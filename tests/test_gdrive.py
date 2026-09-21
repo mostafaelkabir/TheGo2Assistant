@@ -236,3 +236,103 @@ class TestFetch:
         # The filename carries the exported suffix so extraction dispatches right.
         assert fetched.filename == "Q3 Budget.xlsx"
         assert fetched.mime == XLSX_MIME
+
+
+class _SequencedFiles:
+    """Returns one canned `files.list` response per call, in order.
+
+    `list_folder_children` walks a queue of folder ids, one `files.list` call
+    each -- unlike `FakeFiles`, this fake can answer each call differently, so
+    a nested folder structure can be exercised.
+    """
+
+    def __init__(self, responses: list[dict[str, Any]]) -> None:
+        self._responses = list(responses)
+        self.queries: list[str] = []
+
+    def list(self, **kwargs: Any) -> _Call:
+        self.queries.append(str(kwargs.get("q", "")))
+        return _Call(self._responses[len(self.queries) - 1])
+
+
+class _FolderDrive:
+    """Satisfies `DriveService`; `list_folder_children` never calls `changes()`."""
+
+    def __init__(self, files: _SequencedFiles) -> None:
+        self._files = files
+
+    def files(self) -> _SequencedFiles:
+        return self._files
+
+    def changes(self) -> FakeChanges:
+        return FakeChanges({})
+
+
+class TestFolderChildren:
+    """Expanding a picked folder (T-013) into the files inside it."""
+
+    def test_lists_the_direct_children(self) -> None:
+        files = _SequencedFiles(
+            [
+                {
+                    "files": [
+                        {"id": "f1", "name": "A.pdf", "mimeType": "application/pdf"},
+                        {"id": "f2", "name": "B.txt", "mimeType": "text/plain"},
+                    ]
+                }
+            ]
+        )
+        connector = GoogleDriveConnector(_FolderDrive(files))
+
+        found = list(connector.list_folder_children("root"))
+
+        assert [f.title for f in found] == ["A.pdf", "B.txt"]
+        assert files.queries == ["'root' in parents and trashed = false"]
+
+    def test_a_nested_subfolder_is_walked_too(self) -> None:
+        files = _SequencedFiles(
+            [
+                {
+                    "files": [
+                        {"id": "f1", "name": "Top.pdf", "mimeType": "application/pdf"},
+                        {"id": "sub", "name": "Sub", "mimeType": FOLDER_MIME},
+                    ]
+                },
+                {"files": [{"id": "f2", "name": "Nested.pdf", "mimeType": "application/pdf"}]},
+            ]
+        )
+        connector = GoogleDriveConnector(_FolderDrive(files))
+
+        found = {f.title for f in connector.list_folder_children("root")}
+
+        assert found == {"Top.pdf", "Nested.pdf"}
+        assert "'root' in parents and trashed = false" in files.queries
+        assert "'sub' in parents and trashed = false" in files.queries
+
+    def test_a_subfolder_is_never_yielded_as_a_file(self) -> None:
+        files = _SequencedFiles(
+            [{"files": [{"id": "sub", "name": "Sub", "mimeType": FOLDER_MIME}]}, {"files": []}]
+        )
+        connector = GoogleDriveConnector(_FolderDrive(files))
+        assert list(connector.list_folder_children("root")) == []
+
+    def test_an_unsupported_type_inside_the_folder_is_left_out(self) -> None:
+        files = _SequencedFiles([{"files": [{"id": "f1", "name": "Form", "mimeType": FORM_MIME}]}])
+        connector = GoogleDriveConnector(_FolderDrive(files))
+        assert list(connector.list_folder_children("root")) == []
+
+    def test_pagination_within_one_folder_is_followed(self) -> None:
+        files = _SequencedFiles(
+            [
+                {
+                    "files": [{"id": "f1", "name": "A.pdf", "mimeType": "application/pdf"}],
+                    "nextPageToken": "PAGE-2",
+                },
+                {"files": [{"id": "f2", "name": "B.pdf", "mimeType": "application/pdf"}]},
+            ]
+        )
+        connector = GoogleDriveConnector(_FolderDrive(files))
+
+        found = [f.title for f in connector.list_folder_children("root")]
+
+        assert found == ["A.pdf", "B.pdf"]

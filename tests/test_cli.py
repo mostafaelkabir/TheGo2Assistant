@@ -485,6 +485,7 @@ class _FakeCredentials:
     """A never-expired stand-in; refresh is google_auth's own module's to test."""
 
     expired = False
+    token = "an-access-token"
 
 
 class _FakeRefreshableCredentials:
@@ -507,15 +508,23 @@ class _FakeSyncConnector:
     """Stands in for GoogleDriveConnector, so `sync` tests never touch Drive."""
 
     def __init__(
-        self, files: list[RemoteFile], *, fail_titles: frozenset[str] = frozenset()
+        self,
+        files: list[RemoteFile],
+        *,
+        fail_titles: frozenset[str] = frozenset(),
+        folder_children: dict[str, list[RemoteFile]] | None = None,
     ) -> None:
         self._files = files
         self._fail_titles = fail_titles
+        self._folder_children = folder_children or {}
         self.fetched: list[str] = []
 
     def list_changes(self, cursor: str | None) -> ChangeSet:
         assert cursor is None  # T-012 never persists one -- see the ticket's Definition.
         return ChangeSet(files=self._files, cursor="a-cursor", has_more=False)
+
+    def list_folder_children(self, folder_id: str) -> list[RemoteFile]:
+        return self._folder_children.get(folder_id, [])
 
     def fetch_content(self, remote: RemoteFile) -> FetchedContent:
         self.fetched.append(remote.title)
@@ -566,25 +575,43 @@ class TestSyncCommand:
     @staticmethod
     def _stub_connector(
         monkeypatch: pytest.MonkeyPatch,
+        tenant: str,
         files: list[RemoteFile],
         *,
         fail_titles: frozenset[str] = frozenset(),
     ) -> _FakeSyncConnector:
+        """Fake the connector chain, and pick every file passed.
+
+        `sync` only ever looks at picked items (T-013), so a test that wants
+        `sync` to see a file has to pick it first -- the same thing a real
+        `go2 picker` run would have done.
+        """
         connector = _FakeSyncConnector(files, fail_titles=fail_titles)
         monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: _FakeCredentials())
         monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
         monkeypatch.setattr("go2.cli.GoogleDriveConnector", lambda _service: connector)
+        if files:
+            tenant_id = resolve_tenant_id(tenant)
+            with connect() as conn:
+                connection_id = repo.find_connections(conn, tenant_id=tenant_id, source="gdrive")[
+                    0
+                ].id
+                repo.add_selections(
+                    conn,
+                    tenant_id=tenant_id,
+                    connection_id=connection_id,
+                    items=[(f.external_id, "file", f.title) for f in files],
+                )
         return connector
 
     @staticmethod
     def _file(title: str) -> RemoteFile:
         return RemoteFile(external_id=f"drive-{title}", title=title, mime="text/plain")
 
-    @pytest.mark.usefixtures("tenant")
     def test_synced_files_go_through_the_same_pipeline(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._stub_connector(monkeypatch, [self._file("Contract.txt")])
+        self._stub_connector(monkeypatch, tenant, [self._file("Contract.txt")])
 
         result = runner.invoke(app, ["sync"])
 
@@ -598,7 +625,7 @@ class TestSyncCommand:
     def test_sync_is_scoped_to_the_active_tenant(
         self, tenant: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._stub_connector(monkeypatch, [self._file("Contract.txt")])
+        self._stub_connector(monkeypatch, tenant, [self._file("Contract.txt")])
         runner.invoke(app, ["sync"])
 
         tenant_id = resolve_tenant_id(tenant)
@@ -608,10 +635,11 @@ class TestSyncCommand:
             ).scalar_one()
         assert str(row) == tenant_id
 
-    @pytest.mark.usefixtures("tenant")
-    def test_limit_stops_early(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_limit_stops_early(self, tenant: str, monkeypatch: pytest.MonkeyPatch) -> None:
         connector = self._stub_connector(
-            monkeypatch, [self._file("One.txt"), self._file("Two.txt"), self._file("Three.txt")]
+            monkeypatch,
+            tenant,
+            [self._file("One.txt"), self._file("Two.txt"), self._file("Three.txt")],
         )
 
         result = runner.invoke(app, ["sync", "--limit", "1"])
@@ -619,14 +647,13 @@ class TestSyncCommand:
         assert result.exit_code == 0, result.output
         assert connector.fetched == ["One.txt"]
 
-    @pytest.mark.usefixtures("tenant")
     def test_an_unsupported_file_is_skipped_not_failed(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         unsupported = RemoteFile(
             external_id="drive-archive", title="archive.zip", mime="application/zip"
         )
-        self._stub_connector(monkeypatch, [unsupported])
+        self._stub_connector(monkeypatch, tenant, [unsupported])
 
         result = runner.invoke(app, ["sync"])
 
@@ -634,10 +661,12 @@ class TestSyncCommand:
         assert "skipped" in result.output
         assert "failed" not in result.output
 
-    @pytest.mark.usefixtures("tenant")
-    def test_one_bad_file_does_not_abort_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_one_bad_file_does_not_abort_the_run(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._stub_connector(
             monkeypatch,
+            tenant,
             [self._file("1-bad.txt"), self._file("2-good.txt")],
             fail_titles=frozenset({"1-bad.txt"}),
         )
@@ -651,9 +680,10 @@ class TestSyncCommand:
         assert len(docs) == 1
         assert docs[0]["title"] == "2-good.txt"
 
-    @pytest.mark.usefixtures("tenant")
-    def test_source_is_recorded_as_gdrive(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._stub_connector(monkeypatch, [self._file("Contract.txt")])
+    def test_source_is_recorded_as_gdrive(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_connector(monkeypatch, tenant, [self._file("Contract.txt")])
         runner.invoke(app, ["sync"])
 
         assert len(list_documents(source="gdrive")) == 1
@@ -665,12 +695,22 @@ class TestSyncCommand:
         tenant_id = resolve_tenant_id(tenant)
         with connect() as conn:
             conn.execute(text("DELETE FROM connections WHERE tenant_id = :t"), {"t": tenant_id})
-        self._stub_connector(monkeypatch, [])
+        self._stub_connector(monkeypatch, tenant, [])
 
         result = runner.invoke(app, ["sync"])
 
         assert result.exit_code == 1
         assert "go2 connect google" in result.output
+
+    def test_without_a_selection_it_names_the_fix(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_connector(monkeypatch, tenant, [])
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert "go2 picker" in result.output
 
     def test_an_expired_credential_is_refreshed_and_repersisted(
         self, tenant: str, monkeypatch: pytest.MonkeyPatch
@@ -679,17 +719,24 @@ class TestSyncCommand:
         monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: fake_creds)
         monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
         monkeypatch.setattr("go2.cli.GoogleDriveConnector", lambda _service: _FakeSyncConnector([]))
-
-        result = runner.invoke(app, ["sync"])
-
-        assert result.exit_code == 0, result.output
-        assert fake_creds.refresh_calls == 1  # refreshed, never re-prompted
         tenant_id = resolve_tenant_id(tenant)
         with connect() as conn:
             connection_id = conn.execute(
                 text("SELECT id FROM connections WHERE tenant_id = :t AND source = 'gdrive'"),
                 {"t": tenant_id},
             ).scalar_one()
+            repo.add_selections(
+                conn,
+                tenant_id=tenant_id,
+                connection_id=str(connection_id),
+                items=[("drive-anything", "file", "Anything.txt")],
+            )
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert fake_creds.refresh_calls == 1  # refreshed, never re-prompted
+        with connect() as conn:
             token = repo.load_token(conn, tenant_id=tenant_id, connection_id=str(connection_id))
         assert token == '{"token": "a-refreshed-token"}'  # the new token replaced the old
 
@@ -705,7 +752,7 @@ class TestSyncCommand:
                 account="other@example.com",
                 token="another-token",
             )
-        self._stub_connector(monkeypatch, [])
+        self._stub_connector(monkeypatch, tenant, [])
 
         result = runner.invoke(app, ["sync"])
 
@@ -714,14 +761,206 @@ class TestSyncCommand:
         assert "me@example.com" in result.output
         assert "other@example.com" in result.output
 
-    @pytest.mark.usefixtures("tenant")
     def test_an_unknown_account_names_what_is_connected(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._stub_connector(monkeypatch, [])
+        self._stub_connector(monkeypatch, tenant, [])
 
         result = runner.invoke(app, ["sync", "--account", "nope@example.com"])
 
         assert result.exit_code == 1
         assert "nope@example.com" in result.output
         assert "me@example.com" in result.output
+
+    def test_a_picked_folder_includes_its_children(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        child = self._file("Inside.txt")
+        connector = _FakeSyncConnector([], folder_children={"folder-1": [child]})
+        monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: _FakeCredentials())
+        monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
+        monkeypatch.setattr("go2.cli.GoogleDriveConnector", lambda _service: connector)
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            connection_id = repo.find_connections(conn, tenant_id=tenant_id, source="gdrive")[0].id
+            repo.add_selections(
+                conn,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                items=[("folder-1", "folder", "Client Files")],
+            )
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert "Inside.txt" in result.output
+        assert connector.fetched == ["Inside.txt"]
+
+    def test_a_file_added_to_a_picked_folder_later_is_synced(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Proves sync-time expansion, not a pick-time snapshot: the folder's
+        # contents differ between the two `go2 sync` calls below, and nothing
+        # is picked again in between.
+        first_child = self._file("First.txt")
+        connector = _FakeSyncConnector([], folder_children={"folder-1": [first_child]})
+        monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: _FakeCredentials())
+        monkeypatch.setattr("go2.cli.build_drive_service", lambda _creds: object())
+        monkeypatch.setattr("go2.cli.GoogleDriveConnector", lambda _service: connector)
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            connection_id = repo.find_connections(conn, tenant_id=tenant_id, source="gdrive")[0].id
+            repo.add_selections(
+                conn,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                items=[("folder-1", "folder", "Client Files")],
+            )
+        runner.invoke(app, ["sync"])
+        assert connector.fetched == ["First.txt"]
+
+        second_child = self._file("Second.txt")
+        connector._folder_children["folder-1"] = [first_child, second_child]  # noqa: SLF001 -- driving our own fake.
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+        assert "Second.txt" in result.output
+        # First.txt is fetched again too (no persisted cursor -- T-014), but
+        # unchanged content short-circuits before re-embedding, same as
+        # go2 ingest; only the fetch call is asserted here.
+        assert connector.fetched == ["First.txt", "First.txt", "Second.txt"]
+
+
+@pytest.mark.slow
+class TestPickerCommand:
+    """`go2 picker`, `go2 picker list`, `go2 picker remove`.
+
+    The Picker JS widget and `run_picker`'s server loop are `go2/picker_server.py`'s
+    own tests (`tests/test_picker_server.py`); what's covered here is the
+    CLI's use of it -- choosing a connection, persisting what came back, and
+    the list/remove maintenance commands.
+    """
+
+    @pytest.fixture
+    def tenant(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+        monkeypatch.setenv("GO2_FERNET_KEY", Fernet.generate_key().decode())
+        monkeypatch.setenv("GO2_GOOGLE_PICKER_API_KEY", "a-dev-key")
+        slug = f"t-{uuid.uuid4().hex[:10]}"
+        monkeypatch.setenv("GO2_TENANT", slug)
+        get_settings.cache_clear()
+        create_tenant(slug)
+        tenant_id = resolve_tenant_id(slug)
+        with connect() as conn:
+            repo.upsert_connection_token(
+                conn,
+                tenant_id=tenant_id,
+                source="gdrive",
+                account="me@example.com",
+                token="a-stored-token",
+            )
+        try:
+            yield slug
+        finally:
+            delete_tenant(slug)
+            get_settings.cache_clear()
+
+    @staticmethod
+    def _stub_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("go2.cli.credentials_from_token", lambda _token: _FakeCredentials())
+
+    def test_a_picked_selection_is_persisted(
+        self, tenant: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_auth(monkeypatch)
+        monkeypatch.setattr(
+            "go2.picker_server.run_picker",
+            lambda **_kwargs: [
+                ("f-1", "file", "Contract.pdf"),
+                ("d-1", "folder", "Client Files"),
+            ],
+        )
+
+        result = runner.invoke(app, ["picker"])
+
+        assert result.exit_code == 0, result.output
+        assert "Contract.pdf" in result.output
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            connection_id = repo.find_connections(conn, tenant_id=tenant_id, source="gdrive")[0].id
+            selections = repo.list_selections(conn, connection_id=connection_id)
+        assert {(s.external_id, s.kind) for s in selections} == {
+            ("f-1", "file"),
+            ("d-1", "folder"),
+        }
+
+    @pytest.mark.usefixtures("tenant")
+    def test_nothing_picked_is_reported_not_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_auth(monkeypatch)
+        monkeypatch.setattr("go2.picker_server.run_picker", lambda **_kwargs: None)
+
+        result = runner.invoke(app, ["picker"])
+
+        assert result.exit_code == 0, result.output
+        assert "nothing picked" in result.output
+
+    def test_without_a_developer_key_it_names_the_fix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No `tenant` fixture: the key is checked before the tenant or
+        # connection is ever looked at, so this needs neither.
+        monkeypatch.delenv("GO2_GOOGLE_PICKER_API_KEY", raising=False)
+        get_settings.cache_clear()
+
+        result = runner.invoke(app, ["picker"])
+
+        assert result.exit_code == 1
+        assert "GO2_GOOGLE_PICKER_API_KEY" in result.output
+
+    def test_list_shows_active_and_removed(self, tenant: str) -> None:
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            connection_id = repo.find_connections(conn, tenant_id=tenant_id, source="gdrive")[0].id
+            repo.add_selections(
+                conn,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                items=[("f-1", "file", "Kept.pdf"), ("f-2", "file", "Dropped.pdf")],
+            )
+            repo.remove_selection(
+                conn, tenant_id=tenant_id, connection_id=connection_id, external_id="f-2"
+            )
+
+        result = runner.invoke(app, ["picker", "list"])
+
+        assert result.exit_code == 0, result.output
+        assert "Kept.pdf" in result.output
+        assert "Dropped.pdf" in result.output
+
+    def test_remove_stops_a_future_sync_without_touching_indexed_documents(
+        self, tenant: str
+    ) -> None:
+        tenant_id = resolve_tenant_id(tenant)
+        with connect() as conn:
+            connection_id = repo.find_connections(conn, tenant_id=tenant_id, source="gdrive")[0].id
+            repo.add_selections(
+                conn,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                items=[("f-1", "file", "Contract.pdf")],
+            )
+
+        result = runner.invoke(app, ["picker", "remove", "f-1"])
+
+        assert result.exit_code == 0, result.output
+        assert "untouched" in result.output
+        with connect() as conn:
+            active = repo.list_selections(conn, connection_id=connection_id, active_only=True)
+        assert active == []
+
+    @pytest.mark.usefixtures("tenant")
+    def test_removing_an_unpicked_id_names_what_is_wrong(self) -> None:
+        result = runner.invoke(app, ["picker", "remove", "never-picked"])
+
+        assert result.exit_code == 1
+        assert "never-picked" in result.output

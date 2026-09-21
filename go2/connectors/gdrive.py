@@ -250,6 +250,49 @@ class GoogleDriveConnector:
             has_more=bool(next_page),
         )
 
+    def list_folder_children(self, folder_id: str) -> Iterator[RemoteFile]:
+        """Every ingestable file nested under one folder, walked recursively.
+
+        Drive's file listing has no recursive query, so a picked folder's
+        contents are collected by walking each subfolder found along the way.
+        Folders themselves are never yielded, only ingestable files -- this is
+        what lets a file added to the folder later show up on the next sync
+        without picking the folder again.
+
+        Args:
+            folder_id: The picked folder's Drive id.
+        """
+        pending = [folder_id]
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            page_token: str | None = None
+            while True:
+                response = (
+                    self._service.files()
+                    .list(
+                        q=f"'{current}' in parents and trashed = false",
+                        spaces="drive",
+                        pageSize=self._page_size,
+                        pageToken=page_token,
+                        fields=_LIST_FIELDS,
+                    )
+                    .execute()
+                )
+                for payload in response.get("files", []):
+                    if payload.get("mimeType") == _FOLDER_MIME:
+                        pending.append(str(payload.get("id", "")))
+                        continue
+                    remote = parse_file(payload)
+                    if is_ingestable(remote.mime):
+                        yield remote
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
+
     def fetch_content(self, remote: RemoteFile) -> FetchedContent:
         """Download or export one file's bytes.
 

@@ -148,6 +148,12 @@ class Settings(BaseSettings):
 
     fernet_key: SecretStr = SecretStr("")
     google_client_secrets: Path = Path(".secrets/google_client_secret.json")
+    # google_client_secrets authorises this process to call the Drive API.
+    # This key is a different, unrelated credential the Picker *widget*
+    # itself needs, purely to load in the browser -- Google issues it
+    # separately (an "API key" restricted to the Picker API), and it is not
+    # secret the way an OAuth client secret is: it ships to client-side JS.
+    google_picker_api_key: SecretStr = SecretStr("")
 
     langfuse_public_key: SecretStr = SecretStr("")
     langfuse_secret_key: SecretStr = SecretStr("")
