@@ -112,4 +112,21 @@ manual verification step, the same limit T-011's real consent screen hit.
   interact with real Drive files as a non-technical company-owner
   persona; confirmed `drive.file` cannot be worked around without this.
 
+- 2026-09-20 — Implemented and committed to `drive/picker` (not pushed as
+  a PR yet): `go2/picker_server.py` (local Starlette+uvicorn page for the
+  real Picker widget, CSRF-token-gated), migration `006_drive_selections`
+  + `repo.add_selections`/`list_selections`/`remove_selection`,
+  `GoogleDriveConnector.list_folder_children` (recursive, walked at sync
+  time), `go2 sync` now gated on an active selection, and the
+  `go2 picker` / `picker list` / `picker remove` CLI surface. All 6 named
+  test cases plus extras pass; full local suite 494 passed.
+  **Not yet done, before this can go to PR:** the pre-PR gate (retrieval
+  evals since `go2/storage/repository.py` changed, independent review),
+  and live manual verification -- the owner has not yet created a Google
+  Picker API key (`GO2_GOOGLE_PICKER_API_KEY`) in Cloud Console, so the
+  real widget has never actually been opened against a live account.
+  Session paused here (owner's weekly usage limit); resume by running the
+  pre-PR gate, then walking the owner through the Picker API key step
+  from `go2 picker`'s own error message.
+
 ## Outcome
