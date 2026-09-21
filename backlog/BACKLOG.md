@@ -24,10 +24,10 @@ How to work from this file: [README.md](README.md).
 | [T-044](tickets/T-044-near-duplicate-revisions-collapse-in-results-and-show-the-date.md) | Near-duplicate revisions: collapse in results and show the date | 3-accuracy | P2 | ready | — | — | — | — |
 | [T-048](tickets/T-048-local-embedding-rerank-providers-miss-the-evidence-floor-and.md) | Local embedding/rerank providers miss the evidence floor and peg the CPU inside the stack container | 2-gate | P2 | ready | — | — | — | — |
 | [T-025](tickets/T-025-measure-matryoshka-truncation-before-a-customer-forces-it.md) | Measure Matryoshka truncation before a customer forces it | 3-accuracy | P3 | ready | — | — | — | — |
+| [T-013](tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the drive.file scope | 1-drive | P2 | in-progress | T-012 | Claude (Sonnet 5) · `drive/picker` | — | [#13](../../../issues/13) |
 | [T-030](tickets/T-030-dawan-demo-readiness-the-exit-of-the-gate.md) | Dawan demo readiness: the exit criterion for Phase 2 | 2-gate | P1 | backlog | T-012, T-017, T-018, T-019 | — | — | — |
 | [T-035](tickets/T-035-verify-the-first-live-google-drive-user-journey.md) | Verify the first live Google Drive user journey | 1-drive | P1 | backlog | T-012 | — | — | — |
 | [T-036](tickets/T-036-test-client-boundaries-through-real-mcp-tools.md) | Test client boundaries through real MCP tools | 2-gate | P1 | backlog | T-019 | — | — | — |
-| [T-013](tickets/T-013-google-picker-with-the-drive-file-scope.md) | Google Picker with the drive.file scope | 1-drive | P2 | backlog | T-012 | — | — | [#13](../../../issues/13) |
 | [T-014](tickets/T-014-incremental-sync-persist-and-resume-from-the-cursor.md) | Incremental sync: persist and resume from the cursor | 1-drive | P2 | backlog | T-012 | — | — | [#14](../../../issues/14) |
 | [T-015](tickets/T-015-deletions-must-drop-their-chunks.md) | Deletions must drop their chunks | 1-drive | P2 | backlog | T-014 | — | — | [#15](../../../issues/15) |
 | [T-027](tickets/T-027-users-and-workspace-roles-resolve-the-tenant-from-the-princi.md) | Users and workspace roles: resolve the tenant from the principal | 2-gate | P2 | backlog | T-016, T-017 | — | — | — |
